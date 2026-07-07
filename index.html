@@ -58,6 +58,13 @@ button.hi:hover{background:#2f5533}
   </div>
 
   <div class="panel">
+    <div class="pt"><span>Live scan</span><span class="badge">Kinect v2</span></div>
+    <div class="row"><label>bridge url</label><input id="kin-url" type="text" value="ws://localhost:8181"></div>
+    <div class="row"><button id="kin-connect">connect</button><button id="kin-freeze">freeze frame</button></div>
+    <div class="stat" id="kin-stat">Run <b>kinect_bridge.py</b> on this machine (or with --fake to test), then connect. Freeze captures the current frame for full haunting, plotting and export.</div>
+  </div>
+
+  <div class="panel">
     <div class="pt">View</div>
     <div class="row"><label>point size</label><input id="psize" type="range" min="0.5" max="6" value="1.8" step="0.1"><span class="val" id="psize-val">1.8</span></div>
     <div class="row"><label>colour</label><select id="color-mode"><option value="scan">scan colours</option><option value="edge">edge heat</option><option value="bone">bone white</option></select></div>
@@ -352,16 +359,20 @@ function computeEdgesJS() {
   return scores;
 }
 
+function computeEdgesNow() {
+  edgeScores = useWasm ? computeEdgesWasm() : computeEdgesJS();
+  let mn = Infinity, mx = -Infinity;
+  for (const v of edgeScores) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+  if (mx > mn) for (let i = 0; i < n; i++) edgeScores[i] = (edgeScores[i]-mn)/(mx-mn);
+  recomputeHauntWeights();
+  updateColors();
+}
+
 function recomputeEdges() {
   if (!n) return;
   geoStat.textContent = 'Computing edges...';
   setTimeout(() => {
-    edgeScores = useWasm ? computeEdgesWasm() : computeEdgesJS();
-    let mn = Infinity, mx = -Infinity;
-    for (const v of edgeScores) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
-    if (mx > mn) for (let i = 0; i < n; i++) edgeScores[i] = (edgeScores[i]-mn)/(mx-mn);
-    recomputeHauntWeights();
-    updateColors();
+    computeEdgesNow();
     geoStat.textContent = `${n.toLocaleString()} points from ${sourceName} — edges ready.`;
   }, 20);
 }
@@ -549,7 +560,7 @@ function rebuildGeometry() {
   posAttr = new THREE.BufferAttribute(displaced, 3);
   posAttr.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('position', posAttr);
-  colAttr = new THREE.BufferAttribute(new Float32Array(n * 3).fill(0.8), 3);
+  colAttr = new THREE.BufferAttribute(new Float32Array(displaced.length).fill(0.8), 3);
   geometry.setAttribute('color', colAttr);
   const material = new THREE.PointsMaterial({ size: P.psize * 0.004, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.95 });
   points = new THREE.Points(geometry, material);
@@ -579,6 +590,98 @@ function recomputeDensityMask() {
   visMask = new Uint8Array(n);
   const keep = P.density / 100;
   for (let i = 0; i < n; i++) visMask[i] = (i % 100) < keep * 100 ? 1 : 0;
+}
+
+/* ---------- kinect live streaming ---------- */
+const live = { on: false, ws: null, cap: 0, center: null, scale: 1, lastEdge: 0, frames: 0, lastStat: 0 };
+const kinStat = $('kin-stat'), kinBtn = $('kin-connect');
+
+function liveAlloc(cap) {
+  live.cap = cap;
+  basePts = new Float32Array(cap * 3);
+  displaced = new Float32Array(cap * 3);
+  baseCol = null;
+  edgeScores = new Float32Array(cap);
+  hauntW = new Float32Array(cap).fill(0.3);
+  normals = new Array(cap);
+  audioU = new Float32Array(cap);
+  climU = new Float32Array(cap);
+  visMask = new Uint8Array(cap);
+  const keep = P.density / 100;
+  for (let i = 0; i < cap; i++) visMask[i] = (i % 100) < keep * 100 ? 1 : 0;
+  rebuildGeometry();
+}
+
+function setLiveFrame(f32) {
+  const m = (f32.length / 3) | 0;
+  if (!m) return;
+  if (!live.center) {
+    // lock normalization to the first frame so the scene doesn't pulse in scale
+    let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+    for (let i = 0; i < m; i++) {
+      mnx = Math.min(mnx, f32[i*3]);   mxx = Math.max(mxx, f32[i*3]);
+      mny = Math.min(mny, f32[i*3+1]); mxy = Math.max(mxy, f32[i*3+1]);
+      mnz = Math.min(mnz, f32[i*3+2]); mxz = Math.max(mxz, f32[i*3+2]);
+    }
+    live.center = [(mnx+mxx)/2, (mny+mxy)/2, (mnz+mxz)/2];
+    live.scale = 1 / Math.max(mxx-mnx, mxy-mny, mxz-mnz, 1e-9);
+  }
+  if (m > live.cap) liveAlloc(Math.ceil(m * 1.3));
+  n = m;
+  const [cx, cy, cz] = live.center, s = live.scale;
+  for (let i = 0; i < m; i++) {
+    basePts[i*3]   = (f32[i*3]   - cx) * s;
+    basePts[i*3+1] = (f32[i*3+1] - cy) * s;
+    basePts[i*3+2] = -((f32[i*3+2] - cz) * s); // kinect z points away from sensor
+  }
+  geometry.setDrawRange(0, n);
+  live.frames++;
+  const now = performance.now();
+  if (now - live.lastEdge > 3000) { // refresh edges + mappings a few times per minute
+    live.lastEdge = now;
+    computeEdgesNow();
+    recomputeAudioU();
+    recomputeClimU();
+  }
+  if (now - live.lastStat > 1000) {
+    live.lastStat = now;
+    kinStat.textContent = `LIVE — ${n.toLocaleString()} points/frame, ${live.frames} frames received.`;
+    geoStat.textContent = `${n.toLocaleString()} points from Kinect (live).`;
+  }
+}
+
+function kinConnect() {
+  if (live.on) { if (live.ws) live.ws.close(); return; }
+  let ws;
+  try { ws = new WebSocket($('kin-url').value.trim()); }
+  catch (err) { kinStat.textContent = 'Bad websocket URL: ' + err.message; return; }
+  ws.binaryType = 'arraybuffer';
+  kinStat.textContent = 'Connecting…';
+  ws.onopen = () => {
+    live.on = true; live.ws = ws; live.center = null; live.frames = 0;
+    sourceName = 'kinect live';
+    kinBtn.textContent = 'disconnect';
+    kinBtn.classList.add('on');
+    kinStat.textContent = 'Connected — waiting for frames…';
+  };
+  ws.onmessage = e => { if (e.data instanceof ArrayBuffer) setLiveFrame(new Float32Array(e.data)); };
+  ws.onerror = () => { if (!live.on) kinStat.textContent = 'Could not reach the bridge. Is kinect_bridge.py running? (If the app is on https, open it from a local server instead.)'; };
+  ws.onclose = () => {
+    const was = live.on;
+    live.on = false; live.ws = null;
+    kinBtn.textContent = 'connect';
+    kinBtn.classList.remove('on');
+    if (was) kinStat.textContent = 'Disconnected. Last frame kept — freeze ran a full edge pass.';
+    if (was && n) kinFreeze(false);
+  };
+}
+
+function kinFreeze(close = true) {
+  if (close && live.ws) { live.ws.close(); return; } // onclose finishes the freeze
+  sourceName = 'kinect frame';
+  recomputeAudioU();
+  recomputeClimU();
+  recomputeEdges();
 }
 
 /* ---------- demo leaf ---------- */
@@ -1266,6 +1369,8 @@ $('climate-json').addEventListener('change', async e => {
 });
 $('audio-in').addEventListener('change', e => { if (e.target.files[0]) loadAudioFile(e.target.files[0]); });
 $('load-demo').addEventListener('click', loadDemoLeaf);
+$('kin-connect').addEventListener('click', kinConnect);
+$('kin-freeze').addEventListener('click', () => kinFreeze());
 bindRange('plot-detail', 'plotDetail');
 bindRange('plot-glyph', 'plotGlyph', v => v.toFixed(1));
 bindRange('page-w', 'pageW');
@@ -1339,6 +1444,14 @@ resize();
 initWasm();
 loadDemoLeaf();
 requestAnimationFrame(animate);
+
+// smoke-test hook: ?kinectest auto-connects to the local bridge and reports frame stats
+if (location.search.includes('kinectest')) {
+  setTimeout(() => {
+    kinConnect();
+    setTimeout(() => console.log('KINECTEST: live =', live.on, 'frames =', live.frames, 'points =', n), 5000);
+  }, 1000);
+}
 
 // smoke-test hook: open with ?autotest to auto-fetch a month of ERA5 and enable the climate layer
 if (location.search.includes('autotest')) {

@@ -31,6 +31,25 @@ data-troubled object: the unwitting weight of the Stack made visible on nature.
 - `fetch_era5_cds.py` — optional: fetch ERA5 directly from the Copernicus
   Climate Data Store with your CDS API key and convert it to the JSON the app
   loads (Climate panel → "load CDS JSON")
+- `kinect_bridge.py` — optional: stream a live Kinect v2 point cloud into the
+  app over a local WebSocket for on-location scanning
+
+## Live scanning (Kinect v2)
+1. On the machine with the Kinect: install the Kinect for Windows SDK 2.0,
+   then `pip install pykinect2 numpy websockets`.
+2. `python kinect_bridge.py` (options: `--stride`, `--near`, `--far`,
+   `--mirror`; use `--fake` to test the whole path with no hardware).
+3. In the app's Live scan panel hit **connect** — the cloud streams in live
+   with displacement, audio and climate layers applied on top. Edge scores
+   refresh every few seconds while streaming.
+4. **freeze frame** captures the current frame and runs the full edge pass so
+   you can plot it and export the `.ply`.
+
+If the app is open from GitHub Pages (https) and the browser refuses
+`ws://localhost`, serve the folder locally instead (`python -m http.server`)
+and open `http://localhost:8000`.
+If pykinect2 fails to import, replace its two module files with the fixed
+versions from github.com/KonstantinosAng/PyKinect2 (see script header).
 
 ## Usage
 1. Open `index.html` in a browser (or serve the folder and visit it).
