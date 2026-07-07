@@ -118,6 +118,7 @@ button.hi:hover{background:#2f5533}
   <div class="panel">
     <div class="pt">Plotter</div>
     <div class="row"><label>style</label><select id="plot-style">
+      <option value="points">points (stipple)</option>
       <option value="contour">contour curves</option>
       <option value="rings">radial rings</option>
       <option value="hairs">displacement hairs</option>
@@ -1180,7 +1181,11 @@ function buildPlotLayers() {
     for (let k = 0; k < vis.length; k += step) {
       const x = DX(k), y = DY(k), m = mag[k], L = layerOf(k);
       const push = d => layerPaths[L].push(d);
-      if (style === 'hairs') {
+      if (style === 'points') {
+        // stipple: tiny dot per point; glyph slider sets dot size, displacement adds a touch
+        const r = Math.max(0.06, g * 0.09 * (0.6 + m * 0.8));
+        push(`M${fmt(x - r)} ${fmt(y)} a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(2*r)} 0 a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(-2*r)} 0`);
+      } else if (style === 'hairs') {
         const hx = BX(k) + (x - BX(k)) * g, hy = BY(k) + (y - BY(k)) * g;
         push(`M${fmt(BX(k))} ${fmt(BY(k))} L${fmt(hx)} ${fmt(hy)}`);
       } else if (style === 'arrows') {
@@ -1465,7 +1470,7 @@ if (location.search.includes('autotest')) {
     updateTimelineLabel(); drawSpark();
     console.log('AUTOTEST: climate loaded =', climate.loaded, 'var =', climate.varName, 'steps =', tl.len);
     setTimeout(() => {
-      for (const s of ['contour','rings','hairs','arrows','circles','suns','spirals','ascii']) {
+      for (const s of ['points','contour','rings','hairs','arrows','circles','suns','spirals','ascii']) {
         P.plotStyle = s;
         const svg = buildPlotSVG();
         console.log(`AUTOTEST plot ${s}: ${svg.length} chars, layers: ${(svg.match(/inkscape:groupmode/g) || []).length}`);
