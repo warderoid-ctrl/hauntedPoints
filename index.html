@@ -109,6 +109,30 @@ button.hi:hover{background:#2f5533}
   </div>
 
   <div class="panel">
+    <div class="pt">Plotter</div>
+    <div class="row"><label>style</label><select id="plot-style">
+      <option value="contour">contour curves</option>
+      <option value="rings">radial rings</option>
+      <option value="hairs">displacement hairs</option>
+      <option value="arrows">arrows</option>
+      <option value="circles">circles</option>
+      <option value="suns">suns</option>
+      <option value="spirals">spirals</option>
+      <option value="ascii">ascii characters</option>
+    </select></div>
+    <div class="row"><label>detail</label><input id="plot-detail" type="range" min="1" max="100" value="40" step="1"><span class="val" id="plot-detail-val">40</span></div>
+    <div class="row"><label>glyph size</label><input id="plot-glyph" type="range" min="0.5" max="8" value="2" step="0.1"><span class="val" id="plot-glyph-val">2.0</span></div>
+    <div class="row"><label>contour axis</label><select id="plot-axis"><option value="0" selected>x</option><option value="1">y</option><option value="2">z</option></select></div>
+    <div class="row"><label>page w (mm)</label><input id="page-w" type="range" min="100" max="420" value="297" step="1"><span class="val" id="page-w-val">297</span></div>
+    <div class="row"><label>page h (mm)</label><input id="page-h" type="range" min="100" max="420" value="210" step="1"><span class="val" id="page-h-val">210</span></div>
+    <div class="row"><label>pen (mm)</label><input id="pen-w" type="range" min="0.05" max="1" value="0.3" step="0.01"><span class="val" id="pen-w-val">0.30</span></div>
+    <div class="row"><label>pens / layers</label><select id="plot-pens"><option value="1">1 pen</option><option value="2">2 pens</option><option value="3" selected>3 pens</option><option value="4">4 pens</option></select></div>
+    <div class="row"><label>layer by</label><select id="plot-layerby"><option value="data" selected>data value</option><option value="scan">scan colour</option><option value="edge">edge score</option><option value="depth">depth</option></select></div>
+    <div class="row"><button id="plot-preview-btn">preview plot</button><button id="plot-svg" class="hi">download SVG</button></div>
+    <div class="stat">Plots the haunted cloud exactly as seen from the current camera. Contours and rings join points into curves; the other styles draw a mark per point sized by how far data has displaced it.</div>
+  </div>
+
+  <div class="panel">
     <div class="pt">Export</div>
     <div class="row"><button id="export-ply" class="hi">export displaced .ply</button></div>
     <div class="stat">Saves the haunted cloud exactly as displaced at the current timeline moment (with scan colours if present).</div>
@@ -116,7 +140,13 @@ button.hi:hover{background:#2f5533}
 </div>
 
 <div id="main">
-  <div id="viewport"><div id="hud">drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div></div>
+  <div id="viewport">
+    <div id="hud">drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div>
+    <div id="plot-overlay" style="position:absolute;inset:0;background:#f5f4f0;display:none;z-index:5;align-items:center;justify-content:center">
+      <img id="plot-img" alt="plot preview" style="max-width:96%;max-height:96%;box-shadow:0 6px 30px rgba(0,0,0,.35);background:#fff">
+      <button id="plot-close" style="position:absolute;top:12px;right:12px">close preview</button>
+    </div>
+  </div>
   <div id="timeline">
     <div id="tl-top">
       <button id="play">&#9654;</button>
@@ -147,7 +177,9 @@ const P = {
   dispMode: 'normal', amp: 0.5, baseDrive: 0.15, shimmer: 0.25,
   audioBand: 'env', audioMap: 'y', audioGain: 0,
   climGain: 0, climMapping: 'spread', climMap: 'y', climWindow: 168, climTint: false,
-  density: 100, colorMode: 'scan', psize: 1.8
+  density: 100, colorMode: 'scan', psize: 1.8,
+  plotStyle: 'contour', plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210, penW: 0.3,
+  plotPens: 3, plotLayerBy: 'data'
 };
 
 /* ---------- three ---------- */
@@ -909,6 +941,214 @@ function updateDisplacement(dt) {
   if (tc) colAttr.needsUpdate = true;
 }
 
+/* ---------- plotter ---------- */
+// pen palette for layered plots (layer 0 first)
+const PENS = ['#1a1a1a', '#c94f2a', '#2a6bc9', '#3d7a44'];
+
+function climValPoint(i) { // same sampling the displacement uses
+  if (!climate.loaded || !climate.norm || tl.len < 1) return 0;
+  const len = tl.len;
+  let tt = (P.climMapping === 'spread' && len > 1) ? tl.t - P.climWindow * climU[i] : tl.t;
+  tt = ((tt % len) + len) % len;
+  const i0 = tt | 0, f = tt - i0, i1 = (i0 + 1) % len;
+  return climate.norm[i0] * (1 - f) + climate.norm[i1] * f;
+}
+
+function catmullPath(pts, closed, f) {
+  const m = pts.length;
+  if (m < 2) return '';
+  let d = `M${f(pts[0][0])} ${f(pts[0][1])}`;
+  const end = closed ? m : m - 1;
+  for (let i = 0; i < end; i++) {
+    const p1 = pts[i], p2 = pts[(i + 1) % m];
+    const p0 = (closed || i > 0) ? pts[(i - 1 + m) % m] : p1;
+    const p3 = (closed || i < m - 2) ? pts[(i + 2) % m] : p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C${f(c1x)} ${f(c1y)} ${f(c2x)} ${f(c2y)} ${f(p2[0])} ${f(p2[1])}`;
+  }
+  if (closed) d += ' Z';
+  return d;
+}
+
+function buildPlotSVG() {
+  if (!n) return '';
+  const W = P.pageW, H = P.pageH, margin = 12, g = P.plotGlyph;
+  const style = P.plotStyle, layers = P.plotPens;
+  const fmt = v => (Math.round(v * 100) / 100).toString();
+  const vis = [];
+  for (let i = 0; i < n; i++) if (!visMask || visMask[i]) vis.push(i);
+  if (!vis.length) return '';
+  // project displaced + base points through the current camera
+  const v3 = new THREE.Vector3();
+  const nd = new Float32Array(vis.length * 2), nb = new Float32Array(vis.length * 2);
+  const depth = new Float32Array(vis.length);
+  let bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity;
+  for (let k = 0; k < vis.length; k++) {
+    const i = vis[k];
+    v3.set(displaced[i*3], displaced[i*3+1], displaced[i*3+2]).project(camera);
+    nd[k*2] = v3.x; nd[k*2+1] = -v3.y; depth[k] = v3.z;
+    bx0 = Math.min(bx0, v3.x); bx1 = Math.max(bx1, v3.x);
+    by0 = Math.min(by0, -v3.y); by1 = Math.max(by1, -v3.y);
+    v3.set(basePts[i*3], basePts[i*3+1], basePts[i*3+2]).project(camera);
+    nb[k*2] = v3.x; nb[k*2+1] = -v3.y;
+  }
+  const sc = Math.min((W - 2*margin) / (bx1 - bx0 || 1), (H - 2*margin) / (by1 - by0 || 1));
+  const ox = (W - (bx1 - bx0) * sc) / 2 - bx0 * sc;
+  const oy = (H - (by1 - by0) * sc) / 2 - by0 * sc;
+  const DX = k => nd[k*2] * sc + ox,  DY = k => nd[k*2+1] * sc + oy;
+  const BX = k => nb[k*2] * sc + ox, BY = k => nb[k*2+1] * sc + oy;
+  // displacement magnitude per point, normalized
+  const mag = new Float32Array(vis.length);
+  let mmax = 1e-9;
+  for (let k = 0; k < vis.length; k++) {
+    const i = vis[k];
+    mag[k] = Math.hypot(displaced[i*3]-basePts[i*3], displaced[i*3+1]-basePts[i*3+1], displaced[i*3+2]-basePts[i*3+2]);
+    mmax = Math.max(mmax, mag[k]);
+  }
+  for (let k = 0; k < vis.length; k++) mag[k] /= mmax;
+  // layer assignment attribute 0..1 per point
+  let dmin = Infinity, dmax = -Infinity;
+  for (let k = 0; k < vis.length; k++) { dmin = Math.min(dmin, depth[k]); dmax = Math.max(dmax, depth[k]); }
+  const layerAttr = k => {
+    const i = vis[k];
+    if (P.plotLayerBy === 'scan' && baseCol) return Math.max(0, Math.min(1, (baseCol[i*3]*0.35 + baseCol[i*3+1]*0.5 + baseCol[i*3+2]*0.15)));
+    if (P.plotLayerBy === 'edge') return edgeScores[i] ?? 0;
+    if (P.plotLayerBy === 'depth') return dmax > dmin ? (depth[k] - dmin) / (dmax - dmin) : 0;
+    return climate.loaded ? climValPoint(i) : (edgeScores[i] ?? 0); // 'data' falls back to edges
+  };
+  const layerOf = k => Math.min(layers - 1, Math.floor(layerAttr(k) * layers));
+  const layerPaths = Array.from({ length: layers }, () => []);
+  const layerTexts = Array.from({ length: layers }, () => []);
+
+  if (style === 'contour' || style === 'rings') {
+    const allRuns = [];
+    const bands = Math.round(6 + P.plotDetail * 0.54);
+    const axis = P.plotAxis, sortAxis = axis === 0 ? 2 : 0;
+    const bandVal = style === 'rings'
+      ? k => Math.hypot(basePts[vis[k]*3], basePts[vis[k]*3+2])
+      : k => basePts[vis[k]*3 + axis];
+    let vmn = Infinity, vmx = -Infinity;
+    for (let k = 0; k < vis.length; k++) { const bv = bandVal(k); vmn = Math.min(vmn, bv); vmx = Math.max(vmx, bv); }
+    const span = vmx - vmn || 1;
+    const groups = Array.from({ length: bands }, () => []);
+    for (let k = 0; k < vis.length; k++) groups[Math.min(bands - 1, Math.floor((bandVal(k) - vmn) / span * bands))].push(k);
+    for (const grp of groups) {
+      if (grp.length < 3) continue;
+      if (style === 'rings') grp.sort((a, b) => Math.atan2(basePts[vis[a]*3+2], basePts[vis[a]*3]) - Math.atan2(basePts[vis[b]*3+2], basePts[vis[b]*3]));
+      else grp.sort((a, b) => basePts[vis[a]*3 + sortAxis] - basePts[vis[b]*3 + sortAxis]);
+      // split runs where object-space gaps are large
+      const runs = [];
+      let run = [grp[0]];
+      for (let q = 1; q < grp.length; q++) {
+        const a = vis[grp[q-1]], b = vis[grp[q]];
+        const gap = Math.hypot(basePts[b*3]-basePts[a*3], basePts[b*3+1]-basePts[a*3+1], basePts[b*3+2]-basePts[a*3+2]);
+        if (gap > 0.1) { if (run.length > 2) runs.push(run); run = []; }
+        run.push(grp[q]);
+      }
+      if (run.length > 2) runs.push(run);
+      for (const r of runs) {
+        const closed = style === 'rings' && r.length === grp.length && grp.length > 8;
+        // resample the run so curves stay smooth instead of tracing every jitter
+        const maxPts = Math.round(18 + P.plotDetail * 1.2);
+        let r2 = r;
+        if (r.length > maxPts) {
+          r2 = [];
+          const st = (r.length - 1) / (maxPts - 1);
+          for (let q = 0; q < maxPts; q++) r2.push(r[Math.round(q * st)]);
+        }
+        let acc = 0;
+        for (const k of r2) acc += layerAttr(k);
+        allRuns.push({ pts: r2.map(k => [DX(k), DY(k)]), closed, attr: acc / r2.length });
+      }
+    }
+    // assign pens by quantile so every layer gets a share of the drawing
+    const sortedAttr = allRuns.map(r => r.attr).sort((a, b) => a - b);
+    for (const r of allRuns) {
+      let rank = sortedAttr.findIndex(v => v >= r.attr);
+      if (rank < 0) rank = sortedAttr.length - 1;
+      const L = Math.min(layers - 1, Math.floor(rank / (sortedAttr.length || 1) * layers));
+      layerPaths[L].push(catmullPath(r.pts, r.closed, fmt));
+    }
+  } else {
+    const target = Math.round(100 + P.plotDetail * 40);
+    const step = Math.max(1, Math.floor(vis.length / target));
+    const ramp = ['.', ':', '-', '=', '+', '*', '#', '%', '@'];
+    for (let k = 0; k < vis.length; k += step) {
+      const x = DX(k), y = DY(k), m = mag[k], L = layerOf(k);
+      const push = d => layerPaths[L].push(d);
+      if (style === 'hairs') {
+        const hx = BX(k) + (x - BX(k)) * g, hy = BY(k) + (y - BY(k)) * g;
+        push(`M${fmt(BX(k))} ${fmt(BY(k))} L${fmt(hx)} ${fmt(hy)}`);
+      } else if (style === 'arrows') {
+        const hx = BX(k) + (x - BX(k)) * g, hy = BY(k) + (y - BY(k)) * g;
+        const a = Math.atan2(hy - BY(k), hx - BX(k));
+        const hl = Math.max(0.6, (0.25 + m * 0.6) * g);
+        push(`M${fmt(BX(k))} ${fmt(BY(k))} L${fmt(hx)} ${fmt(hy)}`);
+        push(`M${fmt(hx)} ${fmt(hy)} L${fmt(hx - hl*Math.cos(a - 0.45))} ${fmt(hy - hl*Math.sin(a - 0.45))}`);
+        push(`M${fmt(hx)} ${fmt(hy)} L${fmt(hx - hl*Math.cos(a + 0.45))} ${fmt(hy - hl*Math.sin(a + 0.45))}`);
+      } else if (style === 'circles') {
+        const r = (0.2 + m * 0.8) * g;
+        push(`M${fmt(x - r)} ${fmt(y)} a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(2*r)} 0 a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(-2*r)} 0`);
+      } else if (style === 'suns') {
+        const r = (0.2 + m * 0.5) * g;
+        push(`M${fmt(x - r)} ${fmt(y)} a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(2*r)} 0 a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(-2*r)} 0`);
+        for (let q = 0; q < 7; q++) {
+          const a = q / 7 * Math.PI * 2 + m * 2;
+          push(`M${fmt(x + Math.cos(a)*r*1.35)} ${fmt(y + Math.sin(a)*r*1.35)} L${fmt(x + Math.cos(a)*r*2)} ${fmt(y + Math.sin(a)*r*2)}`);
+        }
+      } else if (style === 'spirals') {
+        const rmax = (0.25 + m * 0.75) * g;
+        const segs = 30;
+        let d = `M${fmt(x)} ${fmt(y)}`;
+        for (let q = 1; q <= segs; q++) {
+          const t = q / segs, a = t * Math.PI * 2 * 2.2 + m * 5;
+          d += ` L${fmt(x + Math.cos(a) * rmax * t)} ${fmt(y + Math.sin(a) * rmax * t)}`;
+        }
+        push(d);
+      } else { // ascii
+        const ch = ramp[Math.min(ramp.length - 1, Math.floor(m * ramp.length))];
+        layerTexts[L].push(`<text x="${fmt(x)}" y="${fmt(y)}" font-size="${fmt(g * 2.2)}">${ch === '&' ? '&amp;' : ch}</text>`);
+      }
+    }
+  }
+
+  const meta = [];
+  meta.push(`source scan: ${sourceName}`);
+  if (audio.loaded) meta.push(`audio: ${audio.name} (${P.audioBand})`);
+  if (climate.loaded) meta.push(`climate: ${climate.source} · ${climate.varName} @ ${climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))]} UTC`);
+  let body = '';
+  for (let L = 0; L < layers; L++) {
+    if (!layerPaths[L].length && !layerTexts[L].length) continue;
+    body += `  <g inkscape:groupmode="layer" inkscape:label="pen ${L+1} ${PENS[L]}" stroke="${PENS[L]}" fill="none" stroke-width="${P.penW}" stroke-linecap="round" stroke-linejoin="round">\n`;
+    if (layerPaths[L].length) body += `    <path d="${layerPaths[L].join(' ')}"/>\n`;
+    if (layerTexts[L].length) body += `    <g fill="${PENS[L]}" stroke="none" font-family="monospace" text-anchor="middle">${layerTexts[L].join('')}</g>\n`;
+    body += '  </g>\n';
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">\n  <!-- haunted points plot · ${meta.join(' · ')} -->\n  <rect width="100%" height="100%" fill="white"/>\n${body}</svg>`;
+}
+
+let plotURL = null;
+function showPlotPreview() {
+  const svg = buildPlotSVG();
+  if (!svg) return;
+  if (plotURL) URL.revokeObjectURL(plotURL);
+  plotURL = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  $('plot-img').src = plotURL;
+  $('plot-overlay').style.display = 'flex';
+}
+function downloadPlotSVG() {
+  const svg = buildPlotSVG();
+  if (!svg) return;
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = climate.loaded ? climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))].replace(/[:T]/g, '-') : 'manual';
+  a.download = `haunted_plot_${P.plotStyle}_${stamp}.svg`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /* ---------- export ---------- */
 function exportPLY() {
   if (!n) return;
@@ -989,6 +1229,18 @@ $('climate-json').addEventListener('change', async e => {
 });
 $('audio-in').addEventListener('change', e => { if (e.target.files[0]) loadAudioFile(e.target.files[0]); });
 $('load-demo').addEventListener('click', loadDemoLeaf);
+bindRange('plot-detail', 'plotDetail');
+bindRange('plot-glyph', 'plotGlyph', v => v.toFixed(1));
+bindRange('page-w', 'pageW');
+bindRange('page-h', 'pageH');
+bindRange('pen-w', 'penW', v => v.toFixed(2));
+$('plot-style').addEventListener('change', e => P.plotStyle = e.target.value);
+$('plot-axis').addEventListener('change', e => P.plotAxis = Number(e.target.value));
+$('plot-pens').addEventListener('change', e => P.plotPens = Number(e.target.value));
+$('plot-layerby').addEventListener('change', e => P.plotLayerBy = e.target.value);
+$('plot-preview-btn').addEventListener('click', showPlotPreview);
+$('plot-close').addEventListener('click', () => $('plot-overlay').style.display = 'none');
+$('plot-svg').addEventListener('click', downloadPlotSVG);
 $('flip-axis').addEventListener('click', () => { if (rawPos) { upTurns++; rebuildBase(); } });
 $('export-ply').addEventListener('click', exportPLY);
 
@@ -1059,6 +1311,15 @@ if (location.search.includes('autotest')) {
     tl.t = 400; tlRange.value = 400;
     updateTimelineLabel(); drawSpark();
     console.log('AUTOTEST: climate loaded =', climate.loaded, 'var =', climate.varName, 'steps =', tl.len);
+    setTimeout(() => {
+      for (const s of ['contour','rings','hairs','arrows','circles','suns','spirals','ascii']) {
+        P.plotStyle = s;
+        const svg = buildPlotSVG();
+        console.log(`AUTOTEST plot ${s}: ${svg.length} chars, layers: ${(svg.match(/inkscape:groupmode/g) || []).length}`);
+      }
+      P.plotStyle = 'contour';
+      showPlotPreview();
+    }, 1500);
   }, 800);
 }
 </script>
