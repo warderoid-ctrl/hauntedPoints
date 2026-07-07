@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haunted Points</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#0b0d12;color:#e8e8ea;font-family:system-ui,sans-serif;display:flex;overflow:hidden}
+#side{width:360px;flex-shrink:0;overflow-y:auto;padding:1rem;background:#0f1219;border-right:1px solid #232937}
+#main{flex:1;display:flex;flex-direction:column;min-width:0}
+#viewport{flex:1;position:relative;min-height:0}
+#viewport canvas{display:block}
+h1{font-weight:600;font-size:1.15rem;margin:.2rem 0 .1rem}
+.sub{color:#8b93a7;font-size:.78rem;margin:0 0 1rem;line-height:1.45}
+.panel{background:#13161d;border:1px solid #262b39;border-radius:14px;padding:.9rem;margin-bottom:.8rem}
+.pt{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7d89a6;margin-bottom:.7rem;display:flex;align-items:center;justify-content:space-between}
+.row{display:flex;align-items:center;gap:8px;margin-bottom:.55rem;flex-wrap:wrap}
+.row:last-child{margin-bottom:0}
+label{font-size:12px;color:#c5ccd9;min-width:118px;flex-shrink:0}
+input[type=range]{flex:1;min-width:0;accent-color:#5b79ff}
+select,input[type=text],input[type=number],input[type=date]{flex:1;min-width:0;padding:.35rem .5rem;border-radius:8px;border:1px solid #2f3646;background:#181c25;color:#e8e8ea;font:inherit;font-size:12px}
+input[type=file]{flex:1;font-size:11px;color:#8b93a7;min-width:0}
+button{border:1px solid #38425a;border-radius:10px;padding:.42rem .8rem;background:#1f2634;color:#e8e8ea;cursor:pointer;font:inherit;font-size:12px}
+button:hover{background:#2b344a}
+button.on{background:#2263ff;border-color:#4f7bff;color:#fff}
+button.hi{background:#274229;border-color:#3d7a44}
+button.hi:hover{background:#2f5533}
+.val{font-size:11px;color:#7d89a6;min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
+.drop{border:1px dashed #38425a;border-radius:12px;padding:.9rem;text-align:center;color:#a2acbe;cursor:pointer;position:relative;font-size:12px;transition:background .2s}
+.drop:hover{background:rgba(66,89,255,.06)}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.stat{font-size:11px;color:#7d89a6;margin-top:.5rem;line-height:1.4;word-break:break-word}
+#timeline{background:#0f1219;border-top:1px solid #232937;padding:.6rem .9rem .7rem;display:flex;flex-direction:column;gap:.35rem}
+#tl-top{display:flex;align-items:center;gap:10px}
+#tl-label{font-size:12px;color:#c5ccd9;font-variant-numeric:tabular-nums;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#spark{width:100%;height:52px;display:block;border-radius:8px;background:#0b0d12;border:1px solid #232937;cursor:crosshair;touch-action:none}
+#tl-range{width:100%;accent-color:#c96f4a}
+.badge{font-size:10px;padding:.15rem .45rem;border-radius:99px;border:1px solid #2f3646;color:#8b93a7}
+#hud{position:absolute;left:12px;top:10px;font-size:11px;color:#7d89a6;pointer-events:none;text-shadow:0 1px 3px #000}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="side">
+  <h1>Haunted Points</h1>
+  <p class="sub">A scan, haunted by data. Audio recordings and ERA5 reanalysis displace the points of an organic form &mdash; the unwitting weight of the Stack on nature.</p>
+
+  <div class="panel">
+    <div class="pt"><span>Geometry</span><span class="badge" id="engine-badge">engine</span></div>
+    <div class="drop" id="drop">Drop a <strong>.ply</strong> (ascii or binary) or click<input id="ply-in" type="file" accept=".ply"></div>
+    <div class="row" style="margin-top:.55rem"><button id="load-demo">demo leaf</button><button id="flip-axis" title="cycle which axis is up">rotate up-axis</button></div>
+    <div class="stat" id="geo-stat">No point cloud loaded yet.</div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">View</div>
+    <div class="row"><label>point size</label><input id="psize" type="range" min="0.5" max="6" value="1.8" step="0.1"><span class="val" id="psize-val">1.8</span></div>
+    <div class="row"><label>colour</label><select id="color-mode"><option value="scan">scan colours</option><option value="edge">edge heat</option><option value="bone">bone white</option></select></div>
+    <div class="row"><label>density</label><input id="density" type="range" min="5" max="100" value="100" step="1"><span class="val" id="density-val">100</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Edge haunting</div>
+    <div class="row"><label>method</label><select id="edge-method"><option value="0">curvature</option><option value="1">normal deviation</option><option value="2">sparse density</option><option value="3">combined</option></select></div>
+    <div class="row"><label>radius</label><input id="radius" type="range" min="0.02" max="0.5" value="0.08" step="0.005"><span class="val" id="radius-val">0.08</span></div>
+    <div class="row"><label>threshold</label><input id="threshold" type="range" min="0" max="100" value="25" step="1"><span class="val" id="threshold-val">25</span></div>
+    <div class="row"><label>falloff</label><input id="falloff" type="range" min="1" max="20" value="4" step="1"><span class="val" id="falloff-val">4</span></div>
+    <div class="row"><label>flat suppress</label><input id="flatsup" type="range" min="0" max="100" value="70" step="1"><span class="val" id="flatsup-val">70</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Displacement</div>
+    <div class="row"><label>mode</label><select id="disp-mode"><option value="none">none (data only)</option><option value="normal" selected>along normals</option><option value="radial">radial</option><option value="swirl">swirl</option><option value="shatter">shatter</option><option value="bleed">bleed</option></select></div>
+    <div class="row"><label>amplitude</label><input id="amp" type="range" min="0" max="2" value="0.5" step="0.01"><span class="val" id="amp-val">0.50</span></div>
+    <div class="row"><label>manual drive</label><input id="basedrive" type="range" min="0" max="1" value="0.15" step="0.01"><span class="val" id="basedrive-val">0.15</span></div>
+    <div class="row"><label>shimmer</label><input id="shimmer" type="range" min="0" max="1" value="0.25" step="0.01"><span class="val" id="shimmer-val">0.25</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Audio dataset</div>
+    <div class="row"><input id="audio-in" type="file" accept="audio/*"></div>
+    <div class="row"><label>band</label><select id="audio-band"><option value="env">amplitude</option><option value="low">low (&lt;250 Hz)</option><option value="mid">mid (250&ndash;2k Hz)</option><option value="high">high (&gt;2k Hz)</option></select></div>
+    <div class="row"><label>map along</label><select id="audio-map"><option value="index">point index</option><option value="x">x axis</option><option value="y" selected>y axis</option><option value="z">z axis</option><option value="radial">radial</option></select></div>
+    <div class="row"><label>audio &rarr; points</label><input id="audio-gain" type="range" min="0" max="2" value="0" step="0.01"><span class="val" id="audio-gain-val">0.00</span></div>
+    <div class="stat" id="audio-stat">No audio loaded. The signal sweeps across the cloud along the chosen axis.</div>
+  </div>
+
+  <div class="panel">
+    <div class="pt"><span>Climate dataset</span><span class="badge">ERA5</span></div>
+    <div class="row"><label>latitude</label><input id="lat" type="number" step="0.0001" value="51.5074"></div>
+    <div class="row"><label>longitude</label><input id="lon" type="number" step="0.0001" value="-0.1278"></div>
+    <div class="row"><button id="geoloc" title="use device location">use my location</button></div>
+    <div class="row"><label>from</label><input id="date-start" type="date" value="2024-01-01"></div>
+    <div class="row"><label>to</label><input id="date-end" type="date" value="2024-12-31"></div>
+    <div class="row"><button id="fetch-climate" class="hi">fetch ERA5 (Open-Meteo)</button></div>
+    <div class="row"><label style="min-width:auto">or load CDS JSON</label><input id="climate-json" type="file" accept=".json"></div>
+    <div class="row"><label>variable</label><select id="clim-var" disabled></select></div>
+    <div class="row"><label>climate &rarr; points</label><input id="clim-gain" type="range" min="0" max="2" value="0" step="0.01"><span class="val" id="clim-gain-val">0.00</span></div>
+    <div class="row"><label>mapping</label><select id="clim-mapping"><option value="spread" selected>history spread across cloud</option><option value="uniform">whole cloud, current hour</option></select></div>
+    <div class="row"><label>spread along</label><select id="clim-map"><option value="index">point index</option><option value="x">x axis</option><option value="y" selected>y axis</option><option value="z">z axis</option><option value="radial">radial</option></select></div>
+    <div class="row"><label>window (hours)</label><input id="clim-window" type="range" min="6" max="720" value="168" step="1"><span class="val" id="clim-window-val">168</span></div>
+    <div class="row"><label>tint points by data</label><input id="clim-tint" type="checkbox" style="flex:0"></div>
+    <div class="stat" id="clim-stat">No climate data yet. Fetch fills the timeline below with hourly ERA5 reanalysis for the scan location.</div>
+  </div>
+
+  <div class="panel">
+    <div class="pt">Export</div>
+    <div class="row"><button id="export-ply" class="hi">export displaced .ply</button></div>
+    <div class="stat">Saves the haunted cloud exactly as displaced at the current timeline moment (with scan colours if present).</div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="viewport"><div id="hud">drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div></div>
+  <div id="timeline">
+    <div id="tl-top">
+      <button id="play">&#9654;</button>
+      <select id="play-speed" style="flex:0 0 auto;width:auto">
+        <option value="2">2 h/s</option><option value="12" selected>12 h/s</option>
+        <option value="48">48 h/s</option><option value="240">240 h/s</option>
+      </select>
+      <span id="tl-label">timeline empty &mdash; fetch climate data to scrub through time</span>
+    </div>
+    <canvas id="spark" height="52"></canvas>
+    <input id="tl-range" type="range" min="0" max="0" value="0" step="0.25" disabled>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ---------- dom ---------- */
+const $ = id => document.getElementById(id);
+const geoStat = $('geo-stat'), audioStat = $('audio-stat'), climStat = $('clim-stat');
+const engineBadge = $('engine-badge'), tlLabel = $('tl-label');
+const spark = $('spark'), sparkCtx = spark.getContext('2d');
+const tlRange = $('tl-range'), playBtn = $('play');
+
+const P = {
+  nRadius: 0.08, edgeMethod: 0, edgeThresh: 0.25, edgeFalloff: 4, flatSuppress: 0.7, edgeWeight: 0.9,
+  dispMode: 'normal', amp: 0.5, baseDrive: 0.15, shimmer: 0.25,
+  audioBand: 'env', audioMap: 'y', audioGain: 0,
+  climGain: 0, climMapping: 'spread', climMap: 'y', climWindow: 168, climTint: false,
+  density: 100, colorMode: 'scan', psize: 1.8
+};
+
+/* ---------- three ---------- */
+const viewport = $('viewport');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+viewport.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d12);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100);
+camera.position.set(1.4, 1.0, 1.6);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+let geometry = null, points = null, posAttr = null, colAttr = null;
+
+function resize() {
+  const w = viewport.clientWidth, h = viewport.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  drawSpark();
+}
+new ResizeObserver(resize).observe(viewport);
+
+/* ---------- state ---------- */
+const MAX_INPUT_POINTS = 120000;
+let rawPos = null, rawCol = null;      // sampled, un-normalized, as loaded
+let basePts = new Float32Array(0);     // normalized positions, n*3
+let baseCol = null;                    // n*3 rgb 0..1 or null
+let displaced = new Float32Array(0);
+let n = 0;
+let normals = [];                      // [ [x,y,z], ... ]
+let edgeScores = new Float32Array(0);
+let hauntW = new Float32Array(0);
+let audioU = new Float32Array(0);      // per-point signal coordinate 0..1
+let climU = new Float32Array(0);       // per-point climate history coordinate 0..1
+let srcColors = null;                  // colors before data tinting
+let visMask = null;                    // Uint8Array density mask
+let upTurns = 0;                       // rotate up-axis presses
+let useWasm = false, wasm = null;
+let clockT = 0;
+let sourceName = 'none';
+
+const audio = { loaded: false, name: '', env: null, low: null, mid: null, high: null };
+const climate = { loaded: false, times: [], series: {}, varName: '', norm: null, min: 0, max: 1, unit: '', windDir: null, source: '' };
+const tl = { t: 0, len: 0, playing: false, speed: 12 };
+
+/* ---------- wasm edge core (unchanged from original build) ---------- */
+const WASM_B64 = "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";
+
+async function initWasm() {
+  try {
+    const bytes = Uint8Array.from(atob(WASM_B64), c => c.charCodeAt(0));
+    const result = await WebAssembly.instantiate(bytes, { env: { abort: () => {} } });
+    wasm = result.instance.exports; // module exports its own growable memory
+    useWasm = true;
+  } catch (err) {
+    console.warn('WASM init failed, using JS fallback:', err);
+    useWasm = false;
+  }
+  engineBadge.textContent = useWasm ? 'WASM core' : 'JS core';
+}
+
+function computeEdgesWasm() {
+  if (!wasm || n === 0) return new Float32Array(n);
+  let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+  for (let i = 0; i < n; i++) {
+    mnx = Math.min(mnx, basePts[i*3]);   mxx = Math.max(mxx, basePts[i*3]);
+    mny = Math.min(mny, basePts[i*3+1]); mxy = Math.max(mxy, basePts[i*3+1]);
+    mnz = Math.min(mnz, basePts[i*3+2]); mxz = Math.max(mxz, basePts[i*3+2]);
+  }
+  const cs = P.nRadius;
+  const gx = Math.max(1, Math.min(160, Math.ceil((mxx-mnx)/cs)+1));
+  const gy = Math.max(1, Math.min(160, Math.ceil((mxy-mny)/cs)+1));
+  const gz = Math.max(1, Math.min(160, Math.ceil((mxz-mnz)/cs)+1));
+  const numCells = gx * gy * gz;
+  const ptsPtr = 65536;
+  const normPtr = ptsPtr + n * 12;
+  const scorePtr = normPtr + n * 12;
+  const csPtr = scorePtr + n * 4;
+  const ccPtr = csPtr + (numCells + 1) * 4;
+  const soPtr = ccPtr + numCells * 4;
+  const need = Math.ceil((soPtr + n * 4) / 65536) + 1;
+  const have = wasm.memory.buffer.byteLength / 65536;
+  if (need > have) wasm.memory.grow(need - have);
+  new Float32Array(wasm.memory.buffer).set(basePts, ptsPtr / 4);
+  wasm.computeEdges(ptsPtr, n, P.nRadius, P.edgeMethod, normPtr, scorePtr, csPtr, ccPtr, soPtr, mnx, mny, mnz, gx, gy, gz);
+  const scores = new Float32Array(wasm.memory.buffer, scorePtr, n).slice();
+  const nm = new Float32Array(wasm.memory.buffer, normPtr, n*3);
+  normals = new Array(n);
+  for (let i = 0; i < n; i++) normals[i] = [nm[i*3], nm[i*3+1], nm[i*3+2]];
+  return scores;
+}
+
+function computeEdgesJS() {
+  const r = P.nRadius, r2 = r*r, cellSize = r * 1.25;
+  const cells = new Map();
+  const key = (x,y,z) => x + ',' + y + ',' + z;
+  for (let i = 0; i < n; i++) {
+    const k = key(Math.floor(basePts[i*3]/cellSize), Math.floor(basePts[i*3+1]/cellSize), Math.floor(basePts[i*3+2]/cellSize));
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(i);
+  }
+  normals = new Array(n);
+  const scores = new Float32Array(n);
+  const neighborIds = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const px = basePts[i*3], py = basePts[i*3+1], pz = basePts[i*3+2];
+    const cx = Math.floor(px/cellSize), cy = Math.floor(py/cellSize), cz = Math.floor(pz/cellSize);
+    let mx = 0, my = 0, mz = 0, count = 0;
+    const found = [];
+    for (let dz=-1; dz<=1; dz++) for (let dy=-1; dy<=1; dy++) for (let dx=-1; dx<=1; dx++) {
+      const bucket = cells.get(key(cx+dx, cy+dy, cz+dz));
+      if (!bucket) continue;
+      for (const j of bucket) {
+        if (j === i) continue;
+        const dx0 = basePts[j*3]-px, dy0 = basePts[j*3+1]-py, dz0 = basePts[j*3+2]-pz;
+        if (dx0*dx0 + dy0*dy0 + dz0*dz0 < r2) { mx += basePts[j*3]; my += basePts[j*3+1]; mz += basePts[j*3+2]; count++; found.push(j); }
+      }
+    }
+    if (count < 3) { normals[i] = [0,1,0]; scores[i] = 0; neighborIds[i] = []; continue; }
+    mx /= count; my /= count; mz /= count;
+    let xx=0, xy=0, xz=0, yy=0, yz=0, zz=0;
+    for (const j of found) {
+      const ax = basePts[j*3]-mx, ay = basePts[j*3+1]-my, az = basePts[j*3+2]-mz;
+      xx += ax*ax; xy += ax*ay; xz += ax*az; yy += ay*ay; yz += ay*az; zz += az*az;
+    }
+    const tr = xx+yy+zz;
+    const m00 = tr-xx, m01 = -xy, m02 = -xz, m11 = tr-yy, m12 = -yz, m22 = tr-zz;
+    let vx = 0.57735, vy = 0.57735, vz = 0.57735;
+    for (let it = 0; it < 10; it++) {
+      const rx = m00*vx+m01*vy+m02*vz, ry = m01*vx+m11*vy+m12*vz, rz = m02*vx+m12*vy+m22*vz;
+      const nrm = Math.hypot(rx, ry, rz);
+      if (nrm < 1e-9) break;
+      vx = rx/nrm; vy = ry/nrm; vz = rz/nrm;
+    }
+    normals[i] = [vx, vy, vz];
+    neighborIds[i] = found;
+    if (P.edgeMethod === 0 || P.edgeMethod === 3) {
+      const cnx = xx*vx+xy*vy+xz*vz, cny = xy*vx+yy*vy+yz*vz, cnz = xz*vx+yz*vy+zz*vz;
+      const lmin = vx*cnx+vy*cny+vz*cnz;
+      scores[i] = tr > 1e-12 ? lmin/tr : 0;
+    }
+  }
+  if (P.edgeMethod === 1 || P.edgeMethod === 2 || P.edgeMethod === 3) {
+    let maxV = 0;
+    const raw = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const found = neighborIds[i] || [];
+      let sumDev = 0;
+      if (found.length) {
+        const [nx, ny, nz] = normals[i];
+        for (const j of found) {
+          const nj = normals[j] || [0,1,0];
+          let d = Math.min(1, Math.max(-1, nx*nj[0]+ny*nj[1]+nz*nj[2]));
+          sumDev += 1 - Math.abs(d);
+        }
+      }
+      if (P.edgeMethod === 1) raw[i] = found.length ? sumDev/found.length : 0;
+      else if (P.edgeMethod === 2) raw[i] = 1 - Math.min(found.length/24, 1);
+      else raw[i] = (Math.min(scores[i]*3, 1) + (found.length ? sumDev/found.length : 0)) * 0.5;
+      maxV = Math.max(maxV, raw[i]);
+    }
+    for (let i = 0; i < n; i++) scores[i] = maxV > 0 ? raw[i]/maxV : raw[i];
+  } else {
+    for (let i = 0; i < n; i++) scores[i] = Math.min(1, scores[i]*3);
+  }
+  return scores;
+}
+
+function recomputeEdges() {
+  if (!n) return;
+  geoStat.textContent = 'Computing edges...';
+  setTimeout(() => {
+    edgeScores = useWasm ? computeEdgesWasm() : computeEdgesJS();
+    let mn = Infinity, mx = -Infinity;
+    for (const v of edgeScores) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+    if (mx > mn) for (let i = 0; i < n; i++) edgeScores[i] = (edgeScores[i]-mn)/(mx-mn);
+    recomputeHauntWeights();
+    updateColors();
+    geoStat.textContent = `${n.toLocaleString()} points from ${sourceName} — edges ready.`;
+  }, 20);
+}
+
+function recomputeHauntWeights() {
+  hauntW = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const e = edgeScores[i] ?? 0.5;
+    if (e < P.edgeThresh) hauntW[i] = (1 - P.flatSuppress) * (P.edgeThresh > 0 ? e/P.edgeThresh : 1);
+    else {
+      const t = (e - P.edgeThresh) / (1 - P.edgeThresh || 1);
+      hauntW[i] = (1 - P.flatSuppress) + P.edgeWeight * Math.pow(t, 1/P.edgeFalloff);
+    }
+  }
+}
+
+/* ---------- ply parsing (ascii + binary) ---------- */
+const TYPE_SIZE = {char:1,int8:1,uchar:1,uint8:1,short:2,int16:2,ushort:2,uint16:2,int:4,int32:4,uint:4,uint32:4,float:4,float32:4,double:8,float64:8};
+
+function parsePLY(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const probe = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 65536)));
+  const endIdx = probe.indexOf('end_header');
+  if (endIdx < 0) throw new Error('Not a PLY file (no end_header found)');
+  const nlIdx = probe.indexOf('\n', endIdx);
+  const bodyStart = nlIdx + 1;
+  const header = probe.slice(0, nlIdx).split(/\r?\n/);
+  let format = 'ascii';
+  const elements = [];
+  let cur = null;
+  for (const line of header) {
+    const t = line.trim().split(/\s+/);
+    if (t[0] === 'format') format = t[1];
+    else if (t[0] === 'element') { cur = { name: t[1], count: +t[2], props: [] }; elements.push(cur); }
+    else if (t[0] === 'property' && cur) {
+      if (t[1] === 'list') cur.props.push({ list: true, countType: t[2], itemType: t[3], name: t[4] });
+      else cur.props.push({ type: t[1], name: t[2] });
+    }
+  }
+  const vertEl = elements.find(e => e.name === 'vertex');
+  if (!vertEl || !vertEl.count) throw new Error('No vertex element in PLY header');
+  const pi = {};
+  vertEl.props.forEach((p, idx) => pi[p.name] = idx);
+  if (pi.x === undefined || pi.y === undefined || pi.z === undefined) throw new Error('PLY has no x/y/z properties');
+  const hasColor = pi.red !== undefined && pi.green !== undefined && pi.blue !== undefined;
+  const positions = new Float32Array(vertEl.count * 3);
+  const colors = hasColor ? new Float32Array(vertEl.count * 3) : null;
+  const colScale = t => (t === 'uchar' || t === 'uint8') ? 1/255 : (t === 'ushort' || t === 'uint16') ? 1/65535 : 1;
+
+  if (format === 'ascii') {
+    const text = new TextDecoder().decode(bytes.subarray(bodyStart));
+    const lines = text.split('\n');
+    let li = 0, vi = 0;
+    for (const el of elements) {
+      for (let k = 0; k < el.count && li < lines.length; li++) {
+        const line = lines[li].trim();
+        if (!line || line.startsWith('comment')) continue;
+        if (el === vertEl) {
+          const parts = line.split(/\s+/);
+          positions[vi*3]   = +parts[pi.x];
+          positions[vi*3+1] = +parts[pi.y];
+          positions[vi*3+2] = +parts[pi.z];
+          if (hasColor) {
+            colors[vi*3]   = +parts[pi.red]   * colScale(vertEl.props[pi.red].type);
+            colors[vi*3+1] = +parts[pi.green] * colScale(vertEl.props[pi.green].type);
+            colors[vi*3+2] = +parts[pi.blue]  * colScale(vertEl.props[pi.blue].type);
+          }
+          vi++;
+        }
+        k++;
+      }
+      if (el === vertEl) break; // faces etc. not needed
+    }
+    return { positions: positions.subarray(0, vi*3).slice(), colors: colors ? colors.subarray(0, vi*3).slice() : null };
+  }
+
+  const little = format === 'binary_little_endian';
+  if (!little && format !== 'binary_big_endian') throw new Error('Unknown PLY format: ' + format);
+  const dv = new DataView(buffer);
+  let off = bodyStart;
+  const readVal = (type) => {
+    let v;
+    switch (type) {
+      case 'char': case 'int8': v = dv.getInt8(off); break;
+      case 'uchar': case 'uint8': v = dv.getUint8(off); break;
+      case 'short': case 'int16': v = dv.getInt16(off, little); break;
+      case 'ushort': case 'uint16': v = dv.getUint16(off, little); break;
+      case 'int': case 'int32': v = dv.getInt32(off, little); break;
+      case 'uint': case 'uint32': v = dv.getUint32(off, little); break;
+      case 'float': case 'float32': v = dv.getFloat32(off, little); break;
+      case 'double': case 'float64': v = dv.getFloat64(off, little); break;
+      default: throw new Error('Unknown PLY type ' + type);
+    }
+    off += TYPE_SIZE[type];
+    return v;
+  };
+  for (const el of elements) {
+    if (el === vertEl) {
+      const vals = new Array(el.props.length);
+      for (let i = 0; i < el.count; i++) {
+        for (let p = 0; p < el.props.length; p++) {
+          const prop = el.props[p];
+          if (prop.list) { const cnt = readVal(prop.countType); for (let q = 0; q < cnt; q++) readVal(prop.itemType); vals[p] = 0; }
+          else vals[p] = readVal(prop.type);
+        }
+        positions[i*3] = vals[pi.x]; positions[i*3+1] = vals[pi.y]; positions[i*3+2] = vals[pi.z];
+        if (hasColor) {
+          colors[i*3]   = vals[pi.red]   * colScale(vertEl.props[pi.red].type);
+          colors[i*3+1] = vals[pi.green] * colScale(vertEl.props[pi.green].type);
+          colors[i*3+2] = vals[pi.blue]  * colScale(vertEl.props[pi.blue].type);
+        }
+      }
+      break; // vertex data parsed; faces not needed
+    } else {
+      for (let i = 0; i < el.count; i++) {
+        for (const prop of el.props) {
+          if (prop.list) { const cnt = readVal(prop.countType); off += cnt * TYPE_SIZE[prop.itemType]; }
+          else off += TYPE_SIZE[prop.type];
+        }
+      }
+    }
+  }
+  return { positions, colors };
+}
+
+/* ---------- loading / normalizing ---------- */
+function setPointCloud(positions, colors, name) {
+  const total = positions.length / 3;
+  let step = 1;
+  if (total > MAX_INPUT_POINTS) step = Math.ceil(total / MAX_INPUT_POINTS);
+  const m = Math.floor((total + step - 1) / step);
+  rawPos = new Float32Array(m * 3);
+  rawCol = colors ? new Float32Array(m * 3) : null;
+  let w = 0;
+  for (let i = 0; i < total; i += step) {
+    rawPos[w*3] = positions[i*3]; rawPos[w*3+1] = positions[i*3+1]; rawPos[w*3+2] = positions[i*3+2];
+    if (rawCol) { rawCol[w*3] = colors[i*3]; rawCol[w*3+1] = colors[i*3+1]; rawCol[w*3+2] = colors[i*3+2]; }
+    w++;
+  }
+  rawPos = rawPos.subarray(0, w*3);
+  if (rawCol) rawCol = rawCol.subarray(0, w*3);
+  sourceName = name;
+  geoStat.textContent = step > 1 ? `Sampled ${w.toLocaleString()} of ${total.toLocaleString()} points.` : `${w.toLocaleString()} points.`;
+  rebuildBase();
+}
+
+function rebuildBase() {
+  const m = rawPos.length / 3;
+  n = m;
+  basePts = new Float32Array(m * 3);
+  // apply up-axis rotation: each turn maps (x,y,z) -> (x,z,-y)
+  for (let i = 0; i < m; i++) {
+    let x = rawPos[i*3], y = rawPos[i*3+1], z = rawPos[i*3+2];
+    for (let t = 0; t < upTurns % 3; t++) { const ny = z, nz = -y; y = ny; z = nz; }
+    basePts[i*3] = x; basePts[i*3+1] = y; basePts[i*3+2] = z;
+  }
+  // normalize to unit box centred at origin
+  let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+  for (let i = 0; i < m; i++) {
+    mnx = Math.min(mnx, basePts[i*3]);   mxx = Math.max(mxx, basePts[i*3]);
+    mny = Math.min(mny, basePts[i*3+1]); mxy = Math.max(mxy, basePts[i*3+1]);
+    mnz = Math.min(mnz, basePts[i*3+2]); mxz = Math.max(mxz, basePts[i*3+2]);
+  }
+  const cx = (mnx+mxx)/2, cy = (mny+mxy)/2, cz = (mnz+mxz)/2;
+  const sc = 1 / Math.max(mxx-mnx, mxy-mny, mxz-mnz, 1e-9);
+  for (let i = 0; i < m; i++) {
+    basePts[i*3]   = (basePts[i*3]-cx)*sc;
+    basePts[i*3+1] = (basePts[i*3+1]-cy)*sc;
+    basePts[i*3+2] = (basePts[i*3+2]-cz)*sc;
+  }
+  baseCol = rawCol ? rawCol.slice() : null;
+  displaced = basePts.slice();
+  edgeScores = new Float32Array(n);
+  hauntW = new Float32Array(n).fill(0.3);
+  rebuildGeometry();
+  recomputeAudioU();
+  recomputeClimU();
+  recomputeDensityMask();
+  recomputeEdges();
+}
+
+function rebuildGeometry() {
+  if (points) { scene.remove(points); geometry.dispose(); points.material.dispose(); }
+  geometry = new THREE.BufferGeometry();
+  posAttr = new THREE.BufferAttribute(displaced, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('position', posAttr);
+  colAttr = new THREE.BufferAttribute(new Float32Array(n * 3).fill(0.8), 3);
+  geometry.setAttribute('color', colAttr);
+  const material = new THREE.PointsMaterial({ size: P.psize * 0.004, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.95 });
+  points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  scene.add(points);
+  updateColors();
+}
+
+function updateColors() {
+  if (!colAttr) return;
+  const c = colAttr.array;
+  for (let i = 0; i < n; i++) {
+    if (P.colorMode === 'scan' && baseCol) {
+      c[i*3] = baseCol[i*3]; c[i*3+1] = baseCol[i*3+1]; c[i*3+2] = baseCol[i*3+2];
+    } else if (P.colorMode === 'edge' && edgeScores.length) {
+      const t = Math.max(0, Math.min(1, edgeScores[i]));
+      c[i*3] = 0.16 + t*0.75; c[i*3+1] = 0.16 + t*0.1; c[i*3+2] = 0.55 - t*0.35;
+    } else {
+      c[i*3] = 0.88; c[i*3+1] = 0.88; c[i*3+2] = 0.9;
+    }
+  }
+  srcColors = c.slice();
+  colAttr.needsUpdate = true;
+}
+
+function recomputeDensityMask() {
+  visMask = new Uint8Array(n);
+  const keep = P.density / 100;
+  for (let i = 0; i < n; i++) visMask[i] = (i % 100) < keep * 100 ? 1 : 0;
+}
+
+/* ---------- demo leaf ---------- */
+function loadDemoLeaf() {
+  const pos = [], col = [];
+  const N = 16000;
+  for (let i = 0; i < N; i++) {
+    const u = Math.random() * 2 - 1;                       // along the leaf
+    const halfW = (1 - u*u) * (0.42 + 0.08 * Math.sin(u * 9));
+    const v = (Math.random() * 2 - 1) * halfW;             // across
+    const vein = 0.03 * Math.exp(-Math.pow(v * 14, 2));    // midrib ridge
+    const arch = 0.18 * Math.sin(u * 1.9) + 0.10 * Math.pow(Math.abs(v), 1.6);
+    const x = u, z = v, y = arch + vein + (Math.random()-0.5) * 0.006;
+    pos.push(x, y, z);
+    const g = 0.42 + 0.25 * Math.random() + 0.15 * Math.exp(-Math.pow(v*10,2));
+    col.push(0.13 + 0.12*Math.random(), g, 0.10 + 0.08*Math.random());
+  }
+  setPointCloud(new Float32Array(pos), new Float32Array(col), 'demo leaf');
+}
+
+/* ---------- audio analysis ---------- */
+function fft(re, im) {
+  const N = re.length;
+  for (let i = 1, j = 0; i < N; i++) {
+    let bit = N >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= N; len <<= 1) {
+    const ang = -2 * Math.PI / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < N; i += len) {
+      let cwr = 1, cwi = 0;
+      for (let k = 0; k < len/2; k++) {
+        const ur = re[i+k], ui = im[i+k];
+        const vr = re[i+k+len/2]*cwr - im[i+k+len/2]*cwi;
+        const vi = re[i+k+len/2]*cwi + im[i+k+len/2]*cwr;
+        re[i+k] = ur + vr; im[i+k] = ui + vi;
+        re[i+k+len/2] = ur - vr; im[i+k+len/2] = ui - vi;
+        const nwr = cwr*wr - cwi*wi; cwi = cwr*wi + cwi*wr; cwr = nwr;
+      }
+    }
+  }
+}
+
+async function loadAudioFile(file) {
+  audioStat.textContent = 'Decoding audio...';
+  try {
+    const buf = await file.arrayBuffer();
+    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const data = await actx.decodeAudioData(buf);
+    const ch = data.getChannelData(0);
+    const sr = data.sampleRate;
+    const SLOTS = 1024, FSIZE = 2048;
+    const env = new Float32Array(SLOTS), low = new Float32Array(SLOTS), mid = new Float32Array(SLOTS), high = new Float32Array(SLOTS);
+    const slotLen = Math.max(1, Math.floor(ch.length / SLOTS));
+    const re = new Float32Array(FSIZE), im = new Float32Array(FSIZE);
+    const binHz = sr / FSIZE;
+    const b1 = Math.max(1, Math.round(250 / binHz)), b2 = Math.round(2000 / binHz), b3 = Math.min(FSIZE/2, Math.round(8000 / binHz));
+    for (let s = 0; s < SLOTS; s++) {
+      const start = s * slotLen;
+      let sum = 0;
+      const L = Math.min(slotLen, ch.length - start);
+      for (let k = 0; k < L; k++) sum += ch[start+k]*ch[start+k];
+      env[s] = Math.sqrt(sum / Math.max(1, L));
+      re.fill(0); im.fill(0);
+      const W = Math.min(FSIZE, L);
+      for (let k = 0; k < W; k++) re[k] = ch[start+k] * (0.5 - 0.5*Math.cos(2*Math.PI*k/(W-1)));
+      fft(re, im);
+      let e1 = 0, e2 = 0, e3 = 0;
+      for (let k = 1; k < b1; k++) e1 += re[k]*re[k] + im[k]*im[k];
+      for (let k = b1; k < b2; k++) e2 += re[k]*re[k] + im[k]*im[k];
+      for (let k = b2; k < b3; k++) e3 += re[k]*re[k] + im[k]*im[k];
+      low[s] = Math.sqrt(e1); mid[s] = Math.sqrt(e2); high[s] = Math.sqrt(e3);
+    }
+    for (const arr of [env, low, mid, high]) {
+      let mx = 0;
+      for (const v of arr) mx = Math.max(mx, v);
+      if (mx > 0) for (let i = 0; i < arr.length; i++) arr[i] /= mx;
+    }
+    audio.env = env; audio.low = low; audio.mid = mid; audio.high = high;
+    audio.loaded = true; audio.name = file.name;
+    if (P.audioGain === 0) { P.audioGain = 0.8; $('audio-gain').value = 0.8; $('audio-gain-val').textContent = '0.80'; }
+    audioStat.textContent = `${file.name} — ${data.duration.toFixed(1)}s @ ${sr} Hz, analysed into amplitude + 3 bands.`;
+    actx.close();
+  } catch (err) {
+    console.warn(err);
+    audioStat.textContent = 'Could not decode that audio file.';
+  }
+}
+
+function computeMapU(mode) {
+  const u = new Float32Array(n);
+  if (!n) return u;
+  if (mode === 'index') {
+    for (let i = 0; i < n; i++) u[i] = i / n;
+    return u;
+  }
+  if (mode === 'radial') {
+    let mx = 1e-9;
+    for (let i = 0; i < n; i++) {
+      const d = Math.hypot(basePts[i*3], basePts[i*3+1], basePts[i*3+2]);
+      u[i] = d; mx = Math.max(mx, d);
+    }
+    for (let i = 0; i < n; i++) u[i] /= mx;
+    return u;
+  }
+  const ax = mode === 'x' ? 0 : mode === 'y' ? 1 : 2;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < n; i++) { const v = basePts[i*3+ax]; mn = Math.min(mn, v); mx = Math.max(mx, v); }
+  const span = mx - mn || 1;
+  for (let i = 0; i < n; i++) u[i] = (basePts[i*3+ax] - mn) / span;
+  return u;
+}
+function recomputeAudioU() { audioU = computeMapU(P.audioMap); }
+function recomputeClimU() { climU = computeMapU(P.climMap); }
+
+/* ---------- climate data ---------- */
+const CLIM_VARS = {
+  temperature_2m:        { label: 'temperature 2 m', unit: '°C' },
+  relative_humidity_2m:  { label: 'relative humidity', unit: '%' },
+  precipitation:         { label: 'precipitation', unit: 'mm' },
+  surface_pressure:      { label: 'surface pressure', unit: 'hPa' },
+  wind_speed_10m:        { label: 'wind speed 10 m', unit: 'km/h' },
+  wind_direction_10m:    { label: 'wind direction', unit: '°' },
+  soil_moisture_0_to_7cm:{ label: 'soil moisture 0–7 cm', unit: 'm³/m³' },
+  shortwave_radiation:   { label: 'solar radiation', unit: 'W/m²' },
+  wind_vector:           { label: 'wind vector (speed+direction)', unit: 'km/h' }
+};
+
+async function fetchClimate() {
+  const lat = +$('lat').value, lon = +$('lon').value;
+  const start = $('date-start').value, end = $('date-end').value;
+  if (!start || !end) { climStat.textContent = 'Pick a date range first.'; return; }
+  climStat.textContent = 'Fetching ERA5 hourly reanalysis…';
+  const vars = 'temperature_2m,relative_humidity_2m,precipitation,surface_pressure,wind_speed_10m,wind_direction_10m,soil_moisture_0_to_7cm,shortwave_radiation';
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&hourly=${vars}&timezone=UTC`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    const json = await res.json();
+    ingestClimate(json, `Open-Meteo ERA5 @ ${json.latitude?.toFixed?.(2) ?? lat}, ${json.longitude?.toFixed?.(2) ?? lon}`);
+  } catch (err) {
+    console.warn(err);
+    climStat.textContent = 'Fetch failed: ' + err.message;
+  }
+}
+
+function ingestClimate(json, sourceLabel) {
+  const hourly = json.hourly;
+  if (!hourly || !hourly.time || !hourly.time.length) { climStat.textContent = 'No hourly data in response/file.'; return; }
+  climate.times = hourly.time;
+  climate.series = {};
+  for (const k of Object.keys(hourly)) if (k !== 'time') climate.series[k] = hourly[k];
+  climate.source = json.source || sourceLabel;
+  climate.loaded = true;
+  tl.len = climate.times.length;
+  tl.t = 0;
+  tlRange.max = tl.len - 1;
+  tlRange.value = 0;
+  tlRange.disabled = false;
+  const sel = $('clim-var');
+  sel.innerHTML = '';
+  const avail = Object.keys(CLIM_VARS).filter(k =>
+    k === 'wind_vector' ? (climate.series.wind_speed_10m && climate.series.wind_direction_10m) : climate.series[k]);
+  for (const k of avail) {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = CLIM_VARS[k].label;
+    sel.appendChild(o);
+  }
+  sel.disabled = false;
+  setClimateVariable(avail.includes('wind_speed_10m') ? 'wind_speed_10m' : avail[0]);
+  if (P.climGain === 0) { P.climGain = 0.8; $('clim-gain').value = 0.8; $('clim-gain-val').textContent = '0.80'; }
+  climStat.textContent = `${sourceLabel} — ${tl.len.toLocaleString()} hourly steps (${climate.times[0]} → ${climate.times[tl.len-1]}).`;
+}
+
+function setClimateVariable(name) {
+  climate.varName = name;
+  $('clim-var').value = name;
+  const key = name === 'wind_vector' ? 'wind_speed_10m' : name;
+  const src = climate.series[key] || [];
+  const norm = new Float32Array(tl.len);
+  let mn = Infinity, mx = -Infinity, prev = 0;
+  for (const v of src) if (v != null) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+  if (!isFinite(mn)) { mn = 0; mx = 1; }
+  const span = mx - mn || 1;
+  for (let i = 0; i < tl.len; i++) {
+    const v = src[i];
+    if (v != null) prev = (v - mn) / span;
+    norm[i] = prev;
+  }
+  climate.norm = norm; climate.min = mn; climate.max = mx;
+  climate.unit = CLIM_VARS[name]?.unit || '';
+  climate.windDir = name === 'wind_vector' ? climate.series.wind_direction_10m : null;
+  drawSpark();
+  updateTimelineLabel();
+}
+
+function climValueAt(t) {
+  if (!climate.loaded || !climate.norm) return { norm: 0, raw: null };
+  const i = Math.max(0, Math.min(tl.len - 1, Math.floor(t)));
+  const j = Math.min(tl.len - 1, i + 1);
+  const f = t - i;
+  const nv = climate.norm[i] * (1 - f) + climate.norm[j] * f;
+  const key = climate.varName === 'wind_vector' ? 'wind_speed_10m' : climate.varName;
+  const rawArr = climate.series[key];
+  const raw = rawArr && rawArr[i] != null ? rawArr[i] : null;
+  return { norm: nv, raw };
+}
+
+/* ---------- timeline ui ---------- */
+function updateTimelineLabel() {
+  if (!climate.loaded) { tlLabel.textContent = 'timeline empty — fetch climate data to scrub through time'; return; }
+  const i = Math.max(0, Math.min(tl.len - 1, Math.round(tl.t)));
+  const { raw } = climValueAt(tl.t);
+  const v = raw == null ? '—' : (Math.round(raw * 100) / 100);
+  tlLabel.textContent = `${climate.times[i]} UTC · ${CLIM_VARS[climate.varName]?.label ?? climate.varName}: ${v} ${climate.unit}`;
+}
+
+function drawSpark() {
+  const w = spark.clientWidth || 300;
+  spark.width = Math.floor(w * (window.devicePixelRatio || 1));
+  spark.height = Math.floor(52 * (window.devicePixelRatio || 1));
+  const c = sparkCtx;
+  c.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+  c.clearRect(0, 0, w, 52);
+  if (!climate.loaded || !climate.norm) return;
+  c.strokeStyle = '#3d4a68';
+  c.lineWidth = 1;
+  c.beginPath();
+  const N = climate.norm.length;
+  const step = Math.max(1, Math.floor(N / w));
+  for (let x = 0; x < w; x++) {
+    const idx = Math.min(N - 1, Math.floor(x / w * N));
+    let v = 0, cnt = 0;
+    for (let k = 0; k < step && idx + k < N; k++) { v += climate.norm[idx + k]; cnt++; }
+    v /= cnt || 1;
+    const y = 47 - v * 42;
+    x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+  }
+  c.stroke();
+  // playhead
+  const px = tl.len > 1 ? tl.t / (tl.len - 1) * w : 0;
+  c.strokeStyle = '#c96f4a';
+  c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(px, 2); c.lineTo(px, 50); c.stroke();
+}
+
+function seekFromSpark(ev) {
+  if (!climate.loaded) return;
+  const rect = spark.getBoundingClientRect();
+  const f = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+  tl.t = f * (tl.len - 1);
+  tlRange.value = tl.t;
+  updateTimelineLabel();
+  drawSpark();
+}
+
+/* ---------- displacement ---------- */
+function hash1(i) { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
+
+// each climate variable haunts the cloud in its own way
+const BEHAVIOR = {
+  temperature_2m: 'breathe', relative_humidity_2m: 'swell', precipitation: 'sag',
+  surface_pressure: 'squash', wind_speed_10m: 'wind', wind_direction_10m: 'wind',
+  wind_vector: 'wind', soil_moisture_0_to_7cm: 'droop', shortwave_radiation: 'lift'
+};
+
+function updateDisplacement(dt) {
+  if (!n) return;
+  clockT += dt;
+  const audioArr = audio.loaded ? audio[P.audioBand] : null;
+  const climOn = climate.loaded && climate.norm && P.climGain > 0;
+  const beh = climOn ? (BEHAVIOR[climate.varName] || 'swell') : null;
+  const dirArr = climOn ? climate.series.wind_direction_10m : null;
+  const len = tl.len;
+  const spread = P.climMapping === 'spread' && len > 1;
+  const tint = P.climTint && climOn && srcColors && colAttr;
+  const tc = tint ? colAttr.array : null;
+  const A = P.amp * 0.35;
+  for (let i = 0; i < n; i++) {
+    const bx = basePts[i*3], by = basePts[i*3+1], bz = basePts[i*3+2];
+    if (visMask && !visMask[i]) { // hidden points parked far away
+      displaced[i*3] = 1e6; displaced[i*3+1] = 1e6; displaced[i*3+2] = 1e6;
+      continue;
+    }
+    const sigA = audioArr ? audioArr[Math.min(1023, Math.floor(audioU[i] * 1024))] : 0;
+    let drive = P.baseDrive + P.audioGain * sigA;
+    if (drive < 0) drive = 0;
+    const shim = 1 + P.shimmer * Math.sin(clockT * 1.7 + i * 0.371);
+    const mag = A * hauntW[i] * drive * shim;
+    let dx = 0, dy = 0, dz = 0;
+    if (P.dispMode === 'none') {
+      // base haunting off — only the data layers below move the points
+    } else if (P.dispMode === 'normal') {
+      const nm = normals[i] || [0,1,0];
+      dx = nm[0]*mag; dy = nm[1]*mag; dz = nm[2]*mag;
+    } else if (P.dispMode === 'radial') {
+      const r = Math.hypot(bx, by, bz) || 1;
+      dx = bx/r*mag; dy = by/r*mag; dz = bz/r*mag;
+    } else if (P.dispMode === 'swirl') {
+      const r = Math.hypot(bx, bz) || 1;
+      dx = -bz/r*mag; dz = bx/r*mag; dy = mag * 0.25 * Math.sin(clockT + i * 0.13);
+    } else if (P.dispMode === 'shatter') {
+      const nm = normals[i] || [0,1,0];
+      const s = hash1(i) > 0.5 ? 1 : -1;
+      dx = nm[0]*mag*s; dy = nm[1]*mag*s; dz = nm[2]*mag*s;
+    } else { // bleed: fixed pseudo-random drift per point
+      const h1 = hash1(i)*2-1, h2 = hash1(i+7919)*2-1, h3 = hash1(i+31337)*2-1;
+      const l = Math.hypot(h1, h2, h3) || 1;
+      dx = h1/l*mag; dy = h2/l*mag; dz = h3/l*mag;
+    }
+
+    // climate layer: each point samples its own hour of the series
+    let vC = 0;
+    if (climOn) {
+      let tt = spread ? tl.t - P.climWindow * climU[i] : tl.t;
+      tt = ((tt % len) + len) % len;
+      const i0 = tt | 0, f = tt - i0, i1 = (i0 + 1) % len;
+      vC = climate.norm[i0] * (1 - f) + climate.norm[i1] * f;
+      const cw = A * hauntW[i] * P.climGain;
+      if (beh === 'wind') {
+        const d = dirArr ? dirArr[i0] : null;
+        const az = ((d == null ? 0 : d) + 180) * 0.017453293; // push downwind
+        const wx = Math.sin(az), wz = Math.cos(az);
+        const fl = Math.sin(clockT * (2 + 9 * vC) + i * 0.7) * 0.4 * vC; // gusty flutter
+        dx += (wx * vC - wz * fl) * cw;
+        dz += (wz * vC + wx * fl) * cw;
+        dy += fl * 0.5 * cw;
+      } else if (beh === 'breathe') { // warm expands, cold contracts
+        const r = Math.hypot(bx, by, bz) || 1;
+        const s = (vC - 0.5) * 2 + Math.sin(clockT * 3 + i * 1.31) * 0.25 * vC;
+        dx += bx/r * s * cw; dy += by/r * s * cw; dz += bz/r * s * cw;
+      } else if (beh === 'sag') { // rain weighs the points down
+        dy -= vC * cw * 1.4;
+        dx += Math.sin(clockT * 6 + i) * 0.08 * vC * cw;
+      } else if (beh === 'squash') { // pressure flattens toward the midplane
+        dy -= by * vC * P.climGain * 0.7;
+      } else if (beh === 'droop') { // wet soil pulls down and inward
+        dy -= vC * cw;
+        dx -= bx * vC * cw * 0.5; dz -= bz * vC * cw * 0.5;
+      } else if (beh === 'lift') { // sunlight lifts and quivers
+        dy += vC * cw * (1 + 0.3 * Math.sin(clockT * 4 + i * 0.9));
+      } else { // swell along normals (humidity)
+        const nm = normals[i] || [0,1,0];
+        dx += nm[0] * vC * cw; dy += nm[1] * vC * cw; dz += nm[2] * vC * cw;
+      }
+    }
+
+    displaced[i*3] = bx + dx; displaced[i*3+1] = by + dy; displaced[i*3+2] = bz + dz;
+    if (tc) { // blend toward a warm data tint by local value
+      const t = vC * 0.75;
+      tc[i*3]   = srcColors[i*3]   + (0.95 - srcColors[i*3])   * t;
+      tc[i*3+1] = srcColors[i*3+1] + (0.42 - srcColors[i*3+1]) * t;
+      tc[i*3+2] = srcColors[i*3+2] + (0.22 - srcColors[i*3+2]) * t;
+    }
+  }
+  posAttr.needsUpdate = true;
+  if (tc) colAttr.needsUpdate = true;
+}
+
+/* ---------- export ---------- */
+function exportPLY() {
+  if (!n) return;
+  const idx = [];
+  for (let i = 0; i < n; i++) if (!visMask || visMask[i]) idx.push(i);
+  const hasCol = !!baseCol;
+  const lines = [];
+  lines.push('ply', 'format ascii 1.0');
+  lines.push('comment haunted points export');
+  lines.push(`comment source scan: ${sourceName}`);
+  if (audio.loaded) lines.push(`comment audio dataset: ${audio.name} (${P.audioBand} band, gain ${P.audioGain})`);
+  if (climate.loaded) {
+    const i = Math.max(0, Math.min(tl.len - 1, Math.round(tl.t)));
+    lines.push(`comment climate dataset: ${climate.source}`);
+    lines.push(`comment variable: ${climate.varName}, moment: ${climate.times[i]} UTC, gain ${P.climGain}`);
+  }
+  lines.push(`element vertex ${idx.length}`);
+  lines.push('property float x', 'property float y', 'property float z');
+  if (hasCol) lines.push('property uchar red', 'property uchar green', 'property uchar blue');
+  lines.push('end_header');
+  for (const i of idx) {
+    let line = `${displaced[i*3].toFixed(6)} ${displaced[i*3+1].toFixed(6)} ${displaced[i*3+2].toFixed(6)}`;
+    if (hasCol) line += ` ${Math.round(baseCol[i*3]*255)} ${Math.round(baseCol[i*3+1]*255)} ${Math.round(baseCol[i*3+2]*255)}`;
+    lines.push(line);
+  }
+  const stamp = climate.loaded ? climate.times[Math.round(tl.t)].replace(/[:T]/g, '-') : 'manual';
+  const blob = new Blob([lines.join('\n')], { type: 'application/octet-stream' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `haunted_${(climate.varName || 'points')}_${stamp}.ply`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------- events ---------- */
+function bindRange(id, key, fmt, after) {
+  const el = $(id), val = $(id + '-val');
+  el.addEventListener('input', () => {
+    P[key] = Number(el.value);
+    if (val) val.textContent = fmt ? fmt(P[key]) : el.value;
+    if (after) after();
+  });
+}
+bindRange('psize', 'psize', v => v.toFixed(1), () => { if (points) points.material.size = P.psize * 0.004; });
+bindRange('density', 'density', null, recomputeDensityMask);
+bindRange('radius', 'nRadius', v => v.toFixed(3), recomputeEdges);
+bindRange('threshold', '_thr', null, () => { P.edgeThresh = Number($('threshold').value)/100; recomputeHauntWeights(); });
+bindRange('falloff', 'edgeFalloff', null, recomputeHauntWeights);
+bindRange('flatsup', '_fs', null, () => { P.flatSuppress = Number($('flatsup').value)/100; recomputeHauntWeights(); });
+bindRange('amp', 'amp', v => v.toFixed(2));
+bindRange('basedrive', 'baseDrive', v => v.toFixed(2));
+bindRange('shimmer', 'shimmer', v => v.toFixed(2));
+bindRange('audio-gain', 'audioGain', v => v.toFixed(2));
+bindRange('clim-gain', 'climGain', v => v.toFixed(2));
+
+$('edge-method').addEventListener('change', e => { P.edgeMethod = Number(e.target.value); recomputeEdges(); });
+$('disp-mode').addEventListener('change', e => P.dispMode = e.target.value);
+$('color-mode').addEventListener('change', e => { P.colorMode = e.target.value; updateColors(); });
+$('audio-band').addEventListener('change', e => P.audioBand = e.target.value);
+$('audio-map').addEventListener('change', e => { P.audioMap = e.target.value; recomputeAudioU(); });
+$('clim-var').addEventListener('change', e => setClimateVariable(e.target.value));
+$('clim-mapping').addEventListener('change', e => P.climMapping = e.target.value);
+$('clim-map').addEventListener('change', e => { P.climMap = e.target.value; recomputeClimU(); });
+bindRange('clim-window', 'climWindow');
+$('clim-tint').addEventListener('change', e => { P.climTint = e.target.checked; if (!P.climTint) updateColors(); });
+$('fetch-climate').addEventListener('click', fetchClimate);
+$('geoloc').addEventListener('click', () => {
+  if (!navigator.geolocation) { climStat.textContent = 'Geolocation unavailable in this browser.'; return; }
+  navigator.geolocation.getCurrentPosition(
+    p => { $('lat').value = p.coords.latitude.toFixed(4); $('lon').value = p.coords.longitude.toFixed(4); },
+    () => climStat.textContent = 'Could not get device location.');
+});
+$('climate-json').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try { ingestClimate(JSON.parse(await f.text()), f.name); }
+  catch (err) { climStat.textContent = 'Could not parse JSON: ' + err.message; }
+});
+$('audio-in').addEventListener('change', e => { if (e.target.files[0]) loadAudioFile(e.target.files[0]); });
+$('load-demo').addEventListener('click', loadDemoLeaf);
+$('flip-axis').addEventListener('click', () => { if (rawPos) { upTurns++; rebuildBase(); } });
+$('export-ply').addEventListener('click', exportPLY);
+
+async function handlePlyFile(file) {
+  geoStat.textContent = 'Parsing ' + file.name + '…';
+  try {
+    const { positions, colors } = parsePLY(await file.arrayBuffer());
+    setPointCloud(positions, colors, file.name);
+  } catch (err) {
+    console.error(err);
+    geoStat.textContent = 'Failed to parse: ' + err.message;
+  }
+}
+$('ply-in').addEventListener('change', e => { if (e.target.files[0]) handlePlyFile(e.target.files[0]); });
+const drop = $('drop');
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = '#6874ff'; });
+drop.addEventListener('dragleave', () => drop.style.borderColor = '#38425a');
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.style.borderColor = '#38425a';
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.toLowerCase().endsWith('.ply')) handlePlyFile(f);
+});
+
+playBtn.addEventListener('click', () => {
+  tl.playing = !tl.playing;
+  playBtn.innerHTML = tl.playing ? '&#10074;&#10074;' : '&#9654;';
+  playBtn.classList.toggle('on', tl.playing);
+});
+$('play-speed').addEventListener('change', e => tl.speed = Number(e.target.value));
+tlRange.addEventListener('input', () => { tl.t = Number(tlRange.value); updateTimelineLabel(); drawSpark(); });
+let sparkDrag = false;
+spark.addEventListener('pointerdown', e => { sparkDrag = true; spark.setPointerCapture(e.pointerId); seekFromSpark(e); });
+spark.addEventListener('pointermove', e => { if (sparkDrag) seekFromSpark(e); });
+spark.addEventListener('pointerup', () => sparkDrag = false);
+
+/* ---------- main loop ---------- */
+let lastT = performance.now();
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.1, (now - lastT) / 1000);
+  lastT = now;
+  if (tl.playing && climate.loaded) {
+    tl.t += tl.speed * dt;
+    if (tl.t >= tl.len - 1) tl.t = 0;
+    tlRange.value = tl.t;
+    updateTimelineLabel();
+    drawSpark();
+  }
+  updateDisplacement(dt);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+resize();
+initWasm();
+loadDemoLeaf();
+requestAnimationFrame(animate);
+
+// smoke-test hook: open with ?autotest to auto-fetch a month of ERA5 and enable the climate layer
+if (location.search.includes('autotest')) {
+  setTimeout(async () => {
+    $('date-start').value = '2024-01-01';
+    $('date-end').value = '2024-01-31';
+    await fetchClimate();
+    P.climGain = 1.2; $('clim-gain').value = 1.2;
+    P.climTint = true; $('clim-tint').checked = true;
+    tl.t = 400; tlRange.value = 400;
+    updateTimelineLabel(); drawSpark();
+    console.log('AUTOTEST: climate loaded =', climate.loaded, 'var =', climate.varName, 'steps =', tl.len);
+  }, 800);
+}
+</script>
+</body>
+</html>
