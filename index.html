@@ -128,7 +128,7 @@ button.hi:hover{background:#2f5533}
     <div class="row"><label>pen (mm)</label><input id="pen-w" type="range" min="0.05" max="1" value="0.3" step="0.01"><span class="val" id="pen-w-val">0.30</span></div>
     <div class="row"><label>pens / layers</label><select id="plot-pens"><option value="1">1 pen</option><option value="2">2 pens</option><option value="3" selected>3 pens</option><option value="4">4 pens</option></select></div>
     <div class="row"><label>layer by</label><select id="plot-layerby"><option value="data" selected>data value</option><option value="scan">scan colour</option><option value="edge">edge score</option><option value="depth">depth</option></select></div>
-    <div class="row"><button id="plot-preview-btn">preview plot</button><button id="plot-svg" class="hi">download SVG</button></div>
+    <div class="row"><button id="plot-preview-btn">live plot view</button><button id="plot-svg" class="hi">download SVG</button></div>
     <div class="stat">Plots the haunted cloud exactly as seen from the current camera. Contours and rings join points into curves; the other styles draw a mark per point sized by how far data has displaced it.</div>
   </div>
 
@@ -142,9 +142,9 @@ button.hi:hover{background:#2f5533}
 <div id="main">
   <div id="viewport">
     <div id="hud">drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div>
-    <div id="plot-overlay" style="position:absolute;inset:0;background:#f5f4f0;display:none;z-index:5;align-items:center;justify-content:center">
-      <img id="plot-img" alt="plot preview" style="max-width:96%;max-height:96%;box-shadow:0 6px 30px rgba(0,0,0,.35);background:#fff">
-      <button id="plot-close" style="position:absolute;top:12px;right:12px">close preview</button>
+    <div id="plot-overlay" style="position:absolute;inset:0;background:#f5f4f0;display:none;z-index:5;align-items:center;justify-content:center;pointer-events:none">
+      <canvas id="plot-cv" style="box-shadow:0 6px 30px rgba(0,0,0,.35);background:#fff"></canvas>
+      <button id="plot-close" style="position:absolute;top:12px;right:12px;pointer-events:auto">close plot view</button>
     </div>
   </div>
   <div id="timeline">
@@ -971,14 +971,14 @@ function catmullPath(pts, closed, f) {
   return d;
 }
 
-function buildPlotSVG() {
-  if (!n) return '';
+function buildPlotLayers() {
+  if (!n) return null;
   const W = P.pageW, H = P.pageH, margin = 12, g = P.plotGlyph;
   const style = P.plotStyle, layers = P.plotPens;
   const fmt = v => (Math.round(v * 100) / 100).toString();
   const vis = [];
   for (let i = 0; i < n; i++) if (!visMask || visMask[i]) vis.push(i);
-  if (!vis.length) return '';
+  if (!vis.length) return null;
   // project displaced + base points through the current camera
   const v3 = new THREE.Vector3();
   const nd = new Float32Array(vis.length * 2), nb = new Float32Array(vis.length * 2);
@@ -1108,7 +1108,7 @@ function buildPlotSVG() {
         push(d);
       } else { // ascii
         const ch = ramp[Math.min(ramp.length - 1, Math.floor(m * ramp.length))];
-        layerTexts[L].push(`<text x="${fmt(x)}" y="${fmt(y)}" font-size="${fmt(g * 2.2)}">${ch === '&' ? '&amp;' : ch}</text>`);
+        layerTexts[L].push({ x, y, s: g * 2.2, ch });
       }
     }
   }
@@ -1117,25 +1117,62 @@ function buildPlotSVG() {
   meta.push(`source scan: ${sourceName}`);
   if (audio.loaded) meta.push(`audio: ${audio.name} (${P.audioBand})`);
   if (climate.loaded) meta.push(`climate: ${climate.source} · ${climate.varName} @ ${climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))]} UTC`);
-  let body = '';
-  for (let L = 0; L < layers; L++) {
-    if (!layerPaths[L].length && !layerTexts[L].length) continue;
-    body += `  <g inkscape:groupmode="layer" inkscape:label="pen ${L+1} ${PENS[L]}" stroke="${PENS[L]}" fill="none" stroke-width="${P.penW}" stroke-linecap="round" stroke-linejoin="round">\n`;
-    if (layerPaths[L].length) body += `    <path d="${layerPaths[L].join(' ')}"/>\n`;
-    if (layerTexts[L].length) body += `    <g fill="${PENS[L]}" stroke="none" font-family="monospace" text-anchor="middle">${layerTexts[L].join('')}</g>\n`;
-    body += '  </g>\n';
-  }
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">\n  <!-- haunted points plot · ${meta.join(' · ')} -->\n  <rect width="100%" height="100%" fill="white"/>\n${body}</svg>`;
+  return { W, H, paths: layerPaths, texts: layerTexts, meta };
 }
 
-let plotURL = null;
-function showPlotPreview() {
-  const svg = buildPlotSVG();
-  if (!svg) return;
-  if (plotURL) URL.revokeObjectURL(plotURL);
-  plotURL = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-  $('plot-img').src = plotURL;
-  $('plot-overlay').style.display = 'flex';
+function buildPlotSVG() {
+  const lay = buildPlotLayers();
+  if (!lay) return '';
+  let body = '';
+  for (let L = 0; L < lay.paths.length; L++) {
+    if (!lay.paths[L].length && !lay.texts[L].length) continue;
+    body += `  <g inkscape:groupmode="layer" inkscape:label="pen ${L+1} ${PENS[L]}" stroke="${PENS[L]}" fill="none" stroke-width="${P.penW}" stroke-linecap="round" stroke-linejoin="round">\n`;
+    if (lay.paths[L].length) body += `    <path d="${lay.paths[L].join(' ')}"/>\n`;
+    if (lay.texts[L].length) body += `    <g fill="${PENS[L]}" stroke="none" font-family="monospace" text-anchor="middle">${lay.texts[L].map(t => `<text x="${t.x.toFixed(2)}" y="${t.y.toFixed(2)}" font-size="${t.s.toFixed(2)}">${t.ch === '&' ? '&amp;' : t.ch}</text>`).join('')}</g>\n`;
+    body += '  </g>\n';
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${lay.W}mm" height="${lay.H}mm" viewBox="0 0 ${lay.W} ${lay.H}">\n  <!-- haunted points plot · ${lay.meta.join(' · ')} -->\n  <rect width="100%" height="100%" fill="white"/>\n${body}</svg>`;
+}
+
+/* live plot view: redraws the plot every other frame onto a canvas overlay */
+const plotCv = $('plot-cv'), plotCtx = plotCv.getContext('2d');
+let plotLive = false;
+function togglePlotLive(force) {
+  plotLive = force === undefined ? !plotLive : force;
+  $('plot-overlay').style.display = plotLive ? 'flex' : 'none';
+  const b = $('plot-preview-btn');
+  b.classList.toggle('on', plotLive);
+  b.textContent = plotLive ? 'live plot: on' : 'live plot view';
+  if (plotLive) drawPlotFrame();
+}
+function drawPlotFrame() {
+  const lay = buildPlotLayers();
+  if (!lay) return;
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const s = Math.min((vw * 0.94) / lay.W, (vh * 0.94) / lay.H);
+  const cw = Math.round(lay.W * s), ch = Math.round(lay.H * s);
+  if (plotCv.width !== Math.round(cw * dpr) || plotCv.height !== Math.round(ch * dpr)) {
+    plotCv.width = Math.round(cw * dpr); plotCv.height = Math.round(ch * dpr);
+    plotCv.style.width = cw + 'px'; plotCv.style.height = ch + 'px';
+  }
+  const c = plotCtx;
+  c.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
+  c.fillStyle = '#fff';
+  c.fillRect(0, 0, lay.W, lay.H);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  c.lineWidth = Math.max(P.penW, 0.35 / s); // keep hairlines visible on screen
+  c.textAlign = 'center';
+  for (let L = 0; L < lay.paths.length; L++) {
+    if (lay.paths[L].length) {
+      c.strokeStyle = PENS[L];
+      c.stroke(new Path2D(lay.paths[L].join(' ')));
+    }
+    if (lay.texts[L].length) {
+      c.fillStyle = PENS[L];
+      for (const t of lay.texts[L]) { c.font = t.s.toFixed(2) + 'px monospace'; c.fillText(t.ch, t.x, t.y); }
+    }
+  }
 }
 function downloadPlotSVG() {
   const svg = buildPlotSVG();
@@ -1238,8 +1275,8 @@ $('plot-style').addEventListener('change', e => P.plotStyle = e.target.value);
 $('plot-axis').addEventListener('change', e => P.plotAxis = Number(e.target.value));
 $('plot-pens').addEventListener('change', e => P.plotPens = Number(e.target.value));
 $('plot-layerby').addEventListener('change', e => P.plotLayerBy = e.target.value);
-$('plot-preview-btn').addEventListener('click', showPlotPreview);
-$('plot-close').addEventListener('click', () => $('plot-overlay').style.display = 'none');
+$('plot-preview-btn').addEventListener('click', () => togglePlotLive());
+$('plot-close').addEventListener('click', () => togglePlotLive(false));
 $('plot-svg').addEventListener('click', downloadPlotSVG);
 $('flip-axis').addEventListener('click', () => { if (rawPos) { upTurns++; rebuildBase(); } });
 $('export-ply').addEventListener('click', exportPLY);
@@ -1279,10 +1316,12 @@ spark.addEventListener('pointerup', () => sparkDrag = false);
 
 /* ---------- main loop ---------- */
 let lastT = performance.now();
+let frameNo = 0;
 function animate(now) {
   requestAnimationFrame(animate);
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
+  frameNo++;
   if (tl.playing && climate.loaded) {
     tl.t += tl.speed * dt;
     if (tl.t >= tl.len - 1) tl.t = 0;
@@ -1293,6 +1332,7 @@ function animate(now) {
   updateDisplacement(dt);
   controls.update();
   renderer.render(scene, camera);
+  if (plotLive && frameNo % 2 === 0) drawPlotFrame();
 }
 
 resize();
@@ -1318,7 +1358,8 @@ if (location.search.includes('autotest')) {
         console.log(`AUTOTEST plot ${s}: ${svg.length} chars, layers: ${(svg.match(/inkscape:groupmode/g) || []).length}`);
       }
       P.plotStyle = 'contour';
-      showPlotPreview();
+      togglePlotLive(true);
+      tl.playing = true;
     }, 1500);
   }, 800);
 }
