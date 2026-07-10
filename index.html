@@ -205,7 +205,19 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 0.2;   // can't dolly through the cloud and get trapped at zero
 controls.maxDistance = 25;
-controls.zoomSpeed = 0.4; // high-resolution wheels fire many events per notch
+// OrbitControls zooms one fixed step per wheel EVENT, and many mice fire bursts
+// of events per notch — so zoom ourselves, proportional to the actual delta.
+controls.enableZoom = false;
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  let d = e.deltaY;
+  if (e.deltaMode === 1) d *= 33;        // lines -> px
+  else if (e.deltaMode === 2) d *= 300;  // pages -> px
+  const factor = Math.exp(Math.max(-120, Math.min(120, d)) * 0.0012);
+  const off = camera.position.clone().sub(controls.target);
+  const len = Math.min(controls.maxDistance, Math.max(controls.minDistance, off.length() * factor));
+  camera.position.copy(controls.target).add(off.normalize().multiplyScalar(len));
+}, { passive: false });
 
 function recenterView() {
   camera.position.set(1.4, 1.0, 1.6);
