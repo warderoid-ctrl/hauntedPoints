@@ -105,6 +105,8 @@ button.hi:hover{background:#2f5533}
     <div class="row"><button id="geoloc" title="use device location">use my location</button></div>
     <div class="row"><label>from</label><input id="date-start" type="date" value="2024-01-01"></div>
     <div class="row"><label>to</label><input id="date-end" type="date" value="2024-12-31"></div>
+    <div class="row"><label>epoch B start</label><input id="date-b" type="date"></div>
+    <div class="row"><label>epoch mode</label><select id="epoch-mode" disabled><option value="single">single epoch</option><option value="difference">difference (B − A)</option><option value="split">split view (A | B)</option></select></div>
     <div class="row"><button id="fetch-climate" class="hi">fetch ERA5 (Open-Meteo)</button></div>
     <div class="row"><label style="min-width:auto">or load CDS JSON</label><input id="climate-json" type="file" accept=".json"></div>
     <div class="row"><label>variable</label><select id="clim-var" disabled></select></div>
@@ -151,6 +153,7 @@ button.hi:hover{background:#2f5533}
 <div id="main">
   <div id="viewport">
     <div id="hud">drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div>
+    <div id="epoch-labels" style="position:absolute;left:0;right:0;bottom:8px;display:none;justify-content:space-around;pointer-events:none;font-size:11px;color:#aeb6c8;text-shadow:0 1px 3px #000"><span id="lab-a"></span><span id="lab-b"></span></div>
     <div id="plot-overlay" style="position:absolute;inset:0;background:#f5f4f0;display:none;z-index:5;align-items:center;justify-content:center;pointer-events:none">
       <canvas id="plot-cv" style="box-shadow:0 6px 30px rgba(0,0,0,.35);background:#fff"></canvas>
       <button id="plot-close" style="position:absolute;top:12px;right:12px;pointer-events:auto">close plot view</button>
@@ -185,7 +188,7 @@ const P = {
   nRadius: 0.08, edgeMethod: 0, edgeThresh: 0.25, edgeFalloff: 4, flatSuppress: 0.7, edgeWeight: 0.9,
   dispMode: 'normal', amp: 0.5, baseDrive: 0.15, shimmer: 0.25,
   audioBand: 'env', audioMap: 'y', audioGain: 0,
-  climGain: 0, climMapping: 'spread', climMap: 'y', climWindow: 168, climTint: false,
+  climGain: 0, climMapping: 'spread', climMap: 'y', climWindow: 168, climTint: false, epochMode: 'single',
   density: 100, colorMode: 'scan', psize: 1.8,
   plotStyle: 'contour', plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210, penW: 0.3,
   plotPens: 3, plotLayerBy: 'data'
@@ -226,6 +229,8 @@ function recenterView() {
 }
 
 let geometry = null, points = null, posAttr = null, colAttr = null;
+let geometryB = null, pointsB = null, posAttrB = null;
+let displacedB = new Float32Array(0);
 
 function resize() {
   const w = viewport.clientWidth, h = viewport.clientHeight;
@@ -259,7 +264,8 @@ let clockT = 0;
 let sourceName = 'none';
 
 const audio = { loaded: false, name: '', env: null, low: null, mid: null, high: null };
-const climate = { loaded: false, times: [], series: {}, varName: '', norm: null, min: 0, max: 1, unit: '', windDir: null, source: '' };
+const climate = { loaded: false, times: [], series: {}, varName: '', norm: null, min: 0, max: 1, unit: '', windDir: null, source: '',
+                  seriesB: null, timesB: [], normB: null, normD: null };
 const tl = { t: 0, len: 0, playing: false, speed: 12 };
 
 /* ---------- wasm edge core (unchanged from original build) ---------- */
@@ -582,6 +588,7 @@ function rebuildBase() {
 
 function rebuildGeometry() {
   if (points) { scene.remove(points); geometry.dispose(); points.material.dispose(); }
+  if (pointsB) { scene.remove(pointsB); geometryB.dispose(); }
   geometry = new THREE.BufferGeometry();
   posAttr = new THREE.BufferAttribute(displaced, 3);
   posAttr.setUsage(THREE.DynamicDrawUsage);
@@ -592,6 +599,17 @@ function rebuildGeometry() {
   points = new THREE.Points(geometry, material);
   points.frustumCulled = false;
   scene.add(points);
+  // twin cloud for epoch B in split view (shares material + colours)
+  displacedB = displaced.slice();
+  geometryB = new THREE.BufferGeometry();
+  posAttrB = new THREE.BufferAttribute(displacedB, 3);
+  posAttrB.setUsage(THREE.DynamicDrawUsage);
+  geometryB.setAttribute('position', posAttrB);
+  geometryB.setAttribute('color', colAttr);
+  pointsB = new THREE.Points(geometryB, material);
+  pointsB.frustumCulled = false;
+  pointsB.visible = false;
+  scene.add(pointsB);
   updateColors();
 }
 
@@ -661,6 +679,7 @@ function setLiveFrame(f32) {
     basePts[i*3+2] = -((f32[i*3+2] - cz) * s); // kinect z points away from sensor
   }
   geometry.setDrawRange(0, n);
+  geometryB.setDrawRange(0, n);
   live.frames++;
   const now = performance.now();
   if (now - live.lastEdge > 3000) { // refresh edges + mappings a few times per minute
@@ -843,18 +862,36 @@ async function fetchClimate() {
   const lat = +$('lat').value, lon = +$('lon').value;
   const start = $('date-start').value, end = $('date-end').value;
   if (!start || !end) { climStat.textContent = 'Pick a date range first.'; return; }
-  climStat.textContent = 'Fetching ERA5 hourly reanalysis…';
+  const bStart = $('date-b').value;
+  climStat.textContent = bStart ? 'Fetching both epochs…' : 'Fetching ERA5 hourly reanalysis…';
   const vars = 'temperature_2m,relative_humidity_2m,precipitation,surface_pressure,wind_speed_10m,wind_direction_10m,soil_moisture_0_to_7cm,shortwave_radiation';
-  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&hourly=${vars}&timezone=UTC`;
+  const mk = (s, e) => `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${s}&end_date=${e}&hourly=${vars}&timezone=UTC`;
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-    const json = await res.json();
-    ingestClimate(json, `Open-Meteo ERA5 @ ${json.latitude?.toFixed?.(2) ?? lat}, ${json.longitude?.toFixed?.(2) ?? lon}`);
+    const reqs = [fetch(mk(start, end))];
+    if (bStart) { // epoch B spans the same duration as A
+      const bEnd = new Date(new Date(bStart).getTime() + (new Date(end) - new Date(start))).toISOString().slice(0, 10);
+      reqs.push(fetch(mk(bStart, bEnd)));
+    }
+    const res = await Promise.all(reqs);
+    for (const r of res) if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    const [ja, jb] = await Promise.all(res.map(r => r.json()));
+    ingestClimate(ja, `Open-Meteo ERA5 @ ${ja.latitude?.toFixed?.(2) ?? lat}, ${ja.longitude?.toFixed?.(2) ?? lon}`);
+    if (jb) setEpochB(jb);
   } catch (err) {
     console.warn(err);
     climStat.textContent = 'Fetch failed: ' + err.message;
   }
+}
+
+function setEpochB(json) {
+  const hourly = json.hourly;
+  if (!hourly || !hourly.time || !hourly.time.length) return;
+  climate.seriesB = {};
+  for (const k of Object.keys(hourly)) if (k !== 'time') climate.seriesB[k] = hourly[k];
+  climate.timesB = hourly.time;
+  $('epoch-mode').disabled = false;
+  setClimateVariable(climate.varName); // recompute norms on the common scale
+  climStat.textContent += ` Epoch B loaded: ${climate.timesB[0]} → ${climate.timesB[climate.timesB.length-1]}.`;
 }
 
 function ingestClimate(json, sourceLabel) {
@@ -865,6 +902,10 @@ function ingestClimate(json, sourceLabel) {
   for (const k of Object.keys(hourly)) if (k !== 'time') climate.series[k] = hourly[k];
   climate.source = json.source || sourceLabel;
   climate.loaded = true;
+  climate.seriesB = null; climate.timesB = []; climate.normB = null; climate.normD = null;
+  P.epochMode = 'single';
+  $('epoch-mode').value = 'single';
+  $('epoch-mode').disabled = true;
   tl.len = climate.times.length;
   tl.t = 0;
   tlRange.max = tl.len - 1;
@@ -901,6 +942,33 @@ function setClimateVariable(name) {
     norm[i] = prev;
   }
   climate.norm = norm; climate.min = mn; climate.max = mx;
+  climate.normB = null; climate.normD = null;
+  if (climate.seriesB) {
+    const srcB = climate.seriesB[key] || [];
+    // renormalize both epochs on a shared scale so they are visually comparable
+    let mnC = mn, mxC = mx;
+    for (const v of srcB) if (v != null) { mnC = Math.min(mnC, v); mxC = Math.max(mxC, v); }
+    const spanC = mxC - mnC || 1;
+    prev = 0;
+    for (let i = 0; i < tl.len; i++) { const v = src[i]; if (v != null) prev = (v - mnC) / spanC; norm[i] = prev; }
+    const normB = new Float32Array(tl.len);
+    prev = 0;
+    for (let i = 0; i < tl.len; i++) { const v = srcB[i]; if (v != null) prev = (v - mnC) / spanC; normB[i] = prev; }
+    // signed anomaly B−A, centred on 0.5 (no change = 0.5)
+    const normD = new Float32Array(tl.len);
+    let maxAbs = 1e-9;
+    for (let i = 0; i < tl.len; i++) {
+      const a = src[i], b = srcB[i];
+      if (a != null && b != null) maxAbs = Math.max(maxAbs, Math.abs(b - a));
+    }
+    prev = 0.5;
+    for (let i = 0; i < tl.len; i++) {
+      const a = src[i], b = srcB[i];
+      if (a != null && b != null) prev = 0.5 + 0.5 * (b - a) / maxAbs;
+      normD[i] = prev;
+    }
+    climate.normB = normB; climate.normD = normD;
+  }
   climate.unit = CLIM_VARS[name]?.unit || '';
   climate.windDir = name === 'wind_vector' ? climate.series.wind_direction_10m : null;
   drawSpark();
@@ -923,9 +991,20 @@ function climValueAt(t) {
 function updateTimelineLabel() {
   if (!climate.loaded) { tlLabel.textContent = 'timeline empty — fetch climate data to scrub through time'; return; }
   const i = Math.max(0, Math.min(tl.len - 1, Math.round(tl.t)));
-  const { raw } = climValueAt(tl.t);
-  const v = raw == null ? '—' : (Math.round(raw * 100) / 100);
-  tlLabel.textContent = `${climate.times[i]} UTC · ${CLIM_VARS[climate.varName]?.label ?? climate.varName}: ${v} ${climate.unit}`;
+  const label = CLIM_VARS[climate.varName]?.label ?? climate.varName;
+  const key = climate.varName === 'wind_vector' ? 'wind_speed_10m' : climate.varName;
+  const rawA = climate.series[key]?.[i];
+  const fmtV = v => v == null ? '—' : (Math.round(v * 100) / 100);
+  if (climate.seriesB && P.epochMode !== 'single') {
+    const rawB = climate.seriesB[key]?.[i];
+    const d = (rawA != null && rawB != null) ? rawB - rawA : null;
+    const sign = d != null && d >= 0 ? '+' : '';
+    tlLabel.textContent = `${climate.times[i]} vs ${climate.timesB[i] ?? '—'} · ${label}: A ${fmtV(rawA)} → B ${fmtV(rawB)} (Δ ${sign}${fmtV(d)} ${climate.unit})`;
+    $('lab-a').textContent = `epoch A · ${climate.times[i]} UTC`;
+    $('lab-b').textContent = `epoch B · ${climate.timesB[i] ?? ''} UTC`;
+  } else {
+    tlLabel.textContent = `${climate.times[i]} UTC · ${label}: ${fmtV(rawA)} ${climate.unit}`;
+  }
 }
 
 function drawSpark() {
@@ -936,20 +1015,34 @@ function drawSpark() {
   c.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
   c.clearRect(0, 0, w, 52);
   if (!climate.loaded || !climate.norm) return;
-  c.strokeStyle = '#3d4a68';
-  c.lineWidth = 1;
-  c.beginPath();
-  const N = climate.norm.length;
-  const step = Math.max(1, Math.floor(N / w));
-  for (let x = 0; x < w; x++) {
-    const idx = Math.min(N - 1, Math.floor(x / w * N));
-    let v = 0, cnt = 0;
-    for (let k = 0; k < step && idx + k < N; k++) { v += climate.norm[idx + k]; cnt++; }
-    v /= cnt || 1;
-    const y = 47 - v * 42;
-    x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+  const strokeSeries = (arr, color) => {
+    c.strokeStyle = color;
+    c.lineWidth = 1;
+    c.beginPath();
+    const N = arr.length;
+    const step = Math.max(1, Math.floor(N / w));
+    for (let x = 0; x < w; x++) {
+      const idx = Math.min(N - 1, Math.floor(x / w * N));
+      let v = 0, cnt = 0;
+      for (let k = 0; k < step && idx + k < N; k++) { v += arr[idx + k]; cnt++; }
+      v /= cnt || 1;
+      const y = 47 - v * 42;
+      x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+    }
+    c.stroke();
+  };
+  if (P.epochMode === 'difference' && climate.normD) {
+    c.strokeStyle = '#2a3348'; c.lineWidth = 1; // zero-anomaly midline
+    c.setLineDash([3, 4]);
+    c.beginPath(); c.moveTo(0, 47 - 0.5 * 42); c.lineTo(w, 47 - 0.5 * 42); c.stroke();
+    c.setLineDash([]);
+    strokeSeries(climate.normD, '#b06fc9');
+  } else if (P.epochMode === 'split' && climate.normB) {
+    strokeSeries(climate.norm, '#3d4a68');
+    strokeSeries(climate.normB, '#c96f4a');
+  } else {
+    strokeSeries(climate.norm, '#3d4a68');
   }
-  c.stroke();
   // playhead
   const px = tl.len > 1 ? tl.t / (tl.len - 1) * w : 0;
   c.strokeStyle = '#c96f4a';
@@ -981,18 +1074,30 @@ function updateDisplacement(dt) {
   if (!n) return;
   clockT += dt;
   const audioArr = audio.loaded ? audio[P.audioBand] : null;
-  const climOn = climate.loaded && climate.norm && P.climGain > 0;
+  const haveB = climate.normB != null;
+  const primaryNorm = (P.epochMode === 'difference' && haveB) ? climate.normD : climate.norm;
+  const climOn = climate.loaded && primaryNorm && P.climGain > 0;
   const beh = climOn ? (BEHAVIOR[climate.varName] || 'swell') : null;
-  const dirArr = climOn ? climate.series.wind_direction_10m : null;
+  const dirA = climOn ? ((P.epochMode === 'difference' && haveB) ? climate.seriesB.wind_direction_10m : climate.series.wind_direction_10m) : null;
   const len = tl.len;
   const spread = P.climMapping === 'spread' && len > 1;
   const tint = P.climTint && climOn && srcColors && colAttr;
-  const tc = tint ? colAttr.array : null;
+  displaceInto(displaced, climOn ? primaryNorm : null, dirA, tint ? colAttr.array : null, audioArr, beh, len, spread);
+  posAttr.needsUpdate = true;
+  if (tint) colAttr.needsUpdate = true;
+  if (P.epochMode === 'split' && haveB && climOn && displacedB.length >= n * 3) {
+    displaceInto(displacedB, climate.normB, climate.seriesB.wind_direction_10m, null, audioArr, beh, len, spread);
+    posAttrB.needsUpdate = true;
+  }
+}
+
+function displaceInto(buf, normArr, dirArr, tc, audioArr, beh, len, spread) {
   const A = P.amp * 0.35;
+  const climOn = !!normArr;
   for (let i = 0; i < n; i++) {
     const bx = basePts[i*3], by = basePts[i*3+1], bz = basePts[i*3+2];
     if (visMask && !visMask[i]) { // hidden points parked far away
-      displaced[i*3] = 1e6; displaced[i*3+1] = 1e6; displaced[i*3+2] = 1e6;
+      buf[i*3] = 1e6; buf[i*3+1] = 1e6; buf[i*3+2] = 1e6;
       continue;
     }
     const sigA = audioArr ? audioArr[Math.min(1023, Math.floor(audioU[i] * 1024))] : 0;
@@ -1028,7 +1133,7 @@ function updateDisplacement(dt) {
       let tt = spread ? tl.t - P.climWindow * climU[i] : tl.t;
       tt = ((tt % len) + len) % len;
       const i0 = tt | 0, f = tt - i0, i1 = (i0 + 1) % len;
-      vC = climate.norm[i0] * (1 - f) + climate.norm[i1] * f;
+      vC = normArr[i0] * (1 - f) + normArr[i1] * f;
       const cw = A * hauntW[i] * P.climGain;
       if (beh === 'wind') {
         const d = dirArr ? dirArr[i0] : null;
@@ -1058,7 +1163,7 @@ function updateDisplacement(dt) {
       }
     }
 
-    displaced[i*3] = bx + dx; displaced[i*3+1] = by + dy; displaced[i*3+2] = bz + dz;
+    buf[i*3] = bx + dx; buf[i*3+1] = by + dy; buf[i*3+2] = bz + dz;
     if (tc) { // blend toward a warm data tint by local value
       const t = vC * 0.75;
       tc[i*3]   = srcColors[i*3]   + (0.95 - srcColors[i*3])   * t;
@@ -1066,8 +1171,6 @@ function updateDisplacement(dt) {
       tc[i*3+2] = srcColors[i*3+2] + (0.22 - srcColors[i*3+2]) * t;
     }
   }
-  posAttr.needsUpdate = true;
-  if (tc) colAttr.needsUpdate = true;
 }
 
 /* ---------- plotter ---------- */
@@ -1076,11 +1179,12 @@ const PENS = ['#1a1a1a', '#c94f2a', '#2a6bc9', '#3d7a44'];
 
 function climValPoint(i) { // same sampling the displacement uses
   if (!climate.loaded || !climate.norm || tl.len < 1) return 0;
+  const normArr = (P.epochMode === 'difference' && climate.normD) ? climate.normD : climate.norm;
   const len = tl.len;
   let tt = (P.climMapping === 'spread' && len > 1) ? tl.t - P.climWindow * climU[i] : tl.t;
   tt = ((tt % len) + len) % len;
   const i0 = tt | 0, f = tt - i0, i1 = (i0 + 1) % len;
-  return climate.norm[i0] * (1 - f) + climate.norm[i1] * f;
+  return normArr[i0] * (1 - f) + normArr[i1] * f;
 }
 
 function catmullPath(pts, closed, f) {
@@ -1380,6 +1484,7 @@ $('color-mode').addEventListener('change', e => { P.colorMode = e.target.value; 
 $('audio-band').addEventListener('change', e => P.audioBand = e.target.value);
 $('audio-map').addEventListener('change', e => { P.audioMap = e.target.value; recomputeAudioU(); });
 $('clim-var').addEventListener('change', e => setClimateVariable(e.target.value));
+$('epoch-mode').addEventListener('change', e => { P.epochMode = e.target.value; updateTimelineLabel(); drawSpark(); });
 $('clim-mapping').addEventListener('change', e => P.climMapping = e.target.value);
 $('clim-map').addEventListener('change', e => { P.climMap = e.target.value; recomputeClimU(); });
 bindRange('clim-window', 'climWindow');
@@ -1467,7 +1572,27 @@ function animate(now) {
   }
   updateDisplacement(dt);
   controls.update();
-  renderer.render(scene, camera);
+  const w = viewport.clientWidth, h = viewport.clientHeight;
+  const splitOn = P.epochMode === 'split' && climate.normB && pointsB && P.climGain > 0;
+  $('epoch-labels').style.display = splitOn && !plotLive ? 'flex' : 'none';
+  if (splitOn && w > 1 && h > 1) {
+    if (camera.aspect !== (w/2)/h) { camera.aspect = (w/2)/h; camera.updateProjectionMatrix(); }
+    renderer.setScissorTest(true);
+    points.visible = true; pointsB.visible = false;
+    renderer.setViewport(0, 0, w/2, h); renderer.setScissor(0, 0, w/2, h);
+    renderer.render(scene, camera);
+    points.visible = false; pointsB.visible = true;
+    renderer.setViewport(w/2, 0, w/2, h); renderer.setScissor(w/2, 0, w/2, h);
+    renderer.render(scene, camera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, w, h);
+    points.visible = true; pointsB.visible = false;
+  } else {
+    if (h > 0 && camera.aspect !== w/h) { camera.aspect = w/h; camera.updateProjectionMatrix(); }
+    if (pointsB) pointsB.visible = false;
+    if (points) points.visible = true;
+    renderer.render(scene, camera);
+  }
   if (plotLive && frameNo % 2 === 0) drawPlotFrame();
 }
 
@@ -1489,7 +1614,12 @@ if (location.search.includes('autotest')) {
   setTimeout(async () => {
     $('date-start').value = '2024-01-01';
     $('date-end').value = '2024-01-31';
+    if (location.search.includes('epoch')) $('date-b').value = '1974-01-01';
     await fetchClimate();
+    if (location.search.includes('epoch')) {
+      P.epochMode = 'split'; $('epoch-mode').value = 'split';
+      console.log('AUTOTEST epochs: B loaded =', !!climate.normB, 'mode =', P.epochMode);
+    }
     P.climGain = 1.2; $('clim-gain').value = 1.2;
     P.climTint = true; $('clim-tint').checked = true;
     tl.t = 400; tlRange.value = 400;
