@@ -69,6 +69,7 @@ button.hi:hover{background:#2f5533}
     <div class="row"><label>point size</label><input id="psize" type="range" min="0.5" max="6" value="1.8" step="0.1"><span class="val" id="psize-val">1.8</span></div>
     <div class="row"><label>colour</label><select id="color-mode"><option value="scan">scan colours</option><option value="edge">edge heat</option><option value="bone">bone white</option></select></div>
     <div class="row"><label>density</label><input id="density" type="range" min="5" max="100" value="100" step="1"><span class="val" id="density-val">100</span></div>
+    <div class="row"><button id="recenter">recenter camera</button></div>
   </div>
 
   <div class="panel">
@@ -202,6 +203,15 @@ camera.position.set(1.4, 1.0, 1.6);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
+controls.minDistance = 0.2;   // can't dolly through the cloud and get trapped at zero
+controls.maxDistance = 25;
+controls.zoomSpeed = 0.7;
+
+function recenterView() {
+  camera.position.set(1.4, 1.0, 1.6);
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
 
 let geometry = null, points = null, posAttr = null, colAttr = null;
 
@@ -1374,6 +1384,7 @@ $('climate-json').addEventListener('change', async e => {
 });
 $('audio-in').addEventListener('change', e => { if (e.target.files[0]) loadAudioFile(e.target.files[0]); });
 $('load-demo').addEventListener('click', loadDemoLeaf);
+$('recenter').addEventListener('click', recenterView);
 $('kin-connect').addEventListener('click', kinConnect);
 $('kin-freeze').addEventListener('click', () => kinFreeze());
 bindRange('plot-detail', 'plotDetail');
