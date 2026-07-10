@@ -124,6 +124,8 @@ button.hi:hover{background:#2f5533}
       <option value="points">points (stipple)</option>
       <option value="contour">contour curves</option>
       <option value="rings">radial rings</option>
+      <option value="flow">flow field</option>
+      <option value="rd">reaction–diffusion</option>
       <option value="hairs">displacement hairs</option>
       <option value="arrows">arrows</option>
       <option value="circles">circles</option>
@@ -1303,6 +1305,134 @@ function buildPlotLayers() {
       const L = Math.min(layers - 1, Math.floor(rank / (sortedAttr.length || 1) * layers));
       layerPaths[L].push(catmullPath(r.pts, r.closed, fmt));
     }
+  } else if (style === 'flow') {
+    // streamlines through the displacement vector field:
+    // splat every point's page-space displacement into a coarse grid, then
+    // integrate seed points through the bilinearly-sampled field
+    const GW = 56, GH = Math.max(8, Math.round(56 * H / W));
+    const cellW = W / GW, cellH = H / GH;
+    const fvx = new Float32Array(GW * GH), fvy = new Float32Array(GW * GH), fc = new Float32Array(GW * GH);
+    for (let k = 0; k < vis.length; k++) {
+      const gxi = Math.floor(DX(k) / cellW), gyi = Math.floor(DY(k) / cellH);
+      if (gxi < 0 || gxi >= GW || gyi < 0 || gyi >= GH) continue;
+      const c = gyi * GW + gxi;
+      fvx[c] += DX(k) - BX(k); fvy[c] += DY(k) - BY(k); fc[c]++;
+    }
+    for (let c = 0; c < GW * GH; c++) if (fc[c]) { fvx[c] /= fc[c]; fvy[c] /= fc[c]; }
+    const sampleField = (x, y) => {
+      const fx = x / cellW - 0.5, fy = y / cellH - 0.5;
+      const x0 = Math.floor(fx), y0 = Math.floor(fy);
+      let sx = 0, sy = 0, sw = 0;
+      for (let b = 0; b <= 1; b++) for (let a = 0; a <= 1; a++) {
+        const xx = x0 + a, yy = y0 + b;
+        if (xx < 0 || xx >= GW || yy < 0 || yy >= GH) continue;
+        const c = yy * GW + xx;
+        if (!fc[c]) continue;
+        const wgt = (1 - Math.abs(fx - xx)) * (1 - Math.abs(fy - yy));
+        sx += fvx[c] * wgt; sy += fvy[c] * wgt; sw += wgt;
+      }
+      return sw > 0 ? [sx / sw, sy / sw] : null;
+    };
+    const target = Math.round(60 + P.plotDetail * 12);
+    const step = Math.max(1, Math.floor(vis.length / target));
+    const stepLen = Math.max(0.6, g * 0.5);
+    const maxSteps = 34;
+    for (let k = 0; k < vis.length; k += step) {
+      let x = BX(k), y = BY(k);
+      const pts = [[x, y]];
+      for (let q = 0; q < maxSteps; q++) {
+        const v = sampleField(x, y);
+        if (!v) break;
+        const l = Math.hypot(v[0], v[1]);
+        if (l < 0.01) break;
+        x += v[0] / l * stepLen; y += v[1] / l * stepLen;
+        if (x < 2 || x > W - 2 || y < 2 || y > H - 2) break;
+        pts.push([x, y]);
+      }
+      if (pts.length > 2) layerPaths[layerOf(k)].push(catmullPath(pts, false, fmt));
+    }
+  } else if (style === 'rd') {
+    // Gray-Scott reaction-diffusion over the cloud's footprint; the data value
+    // at each cell sets feed/kill, so the climate chooses the pattern's shape
+    const GW2 = 110, GH2 = Math.max(12, Math.round(110 * H / W));
+    const NC = GW2 * GH2, cw2 = W / GW2, ch2 = H / GH2;
+    let U = new Float32Array(NC).fill(1), Vf = new Float32Array(NC);
+    const U2 = new Float32Array(NC), V2 = new Float32Array(NC);
+    const rdMask = new Uint8Array(NC), attrG = new Float32Array(NC), cntG = new Float32Array(NC);
+    for (let k = 0; k < vis.length; k++) {
+      const gxi = Math.floor(DX(k) / cw2), gyi = Math.floor(DY(k) / ch2);
+      if (gxi < 0 || gxi >= GW2 || gyi < 0 || gyi >= GH2) continue;
+      const c = gyi * GW2 + gxi;
+      rdMask[c] = 1; attrG[c] += layerAttr(k); cntG[c]++;
+    }
+    for (let c = 0; c < NC; c++) if (cntG[c]) attrG[c] /= cntG[c];
+    // seed gentle V blobs sparsely (~2% of cells; dense seeding crashes U globally)
+    for (let c = 0; c < NC; c++) {
+      if (!rdMask[c] || ((c * 2654435761 >>> 0) % 47) >= 1) continue;
+      for (const o of [0, -1, 1, -GW2, GW2]) {
+        const c2 = c + o;
+        if (c2 >= 0 && c2 < NC && rdMask[c2]) { Vf[c2] = 0.55; U[c2] = 0.45; }
+      }
+    }
+    const iters = Math.round(160 + P.plotDetail * 3);
+    const Du = 0.21, Dv = 0.105;
+    let Ua = U, Va = Vf, Ub = U2, Vb = V2;
+    for (let it = 0; it < iters; it++) {
+      for (let j = 0; j < GH2; j++) for (let i = 0; i < GW2; i++) {
+        const c = j * GW2 + i;
+        if (!rdMask[c]) { Ub[c] = 1; Vb[c] = 0; continue; }
+        const u = Ua[c], v = Va[c];
+        // outside the footprint counts as fresh chemical (u=1, v=0) so the
+        // boundary feeds the reaction instead of starving it
+        let lU = 0, lV = 0;
+        if (i > 0 && rdMask[c-1])        { lU += Ua[c-1];   lV += Va[c-1];   } else lU += 1;
+        if (i < GW2-1 && rdMask[c+1])    { lU += Ua[c+1];   lV += Va[c+1];   } else lU += 1;
+        if (j > 0 && rdMask[c-GW2])      { lU += Ua[c-GW2]; lV += Va[c-GW2]; } else lU += 1;
+        if (j < GH2-1 && rdMask[c+GW2])  { lU += Ua[c+GW2]; lV += Va[c+GW2]; } else lU += 1;
+        const lapU = lU - 4 * u;
+        const lapV = lV - 4 * v;
+        const a = attrG[c];
+        const F = 0.034 + 0.022 * a, K = 0.060 + 0.004 * a;
+        const uvv = u * v * v;
+        let nu = u + Du * lapU - uvv + F * (1 - u);
+        let nv = v + Dv * lapV + uvv - (F + K) * v;
+        Ub[c] = nu < 0 ? 0 : nu > 1 ? 1 : nu; // clamp to keep the sim stable
+        Vb[c] = nv < 0 ? 0 : nv > 1 ? 1 : nv;
+      }
+      const su = Ua; Ua = Ub; Ub = su;
+      const sv = Va; Va = Vb; Vb = sv;
+    }
+    if (location.search.includes('rddebug')) {
+      let mc = 0, sc = 0, mv = 0, nan = 0;
+      for (let c = 0; c < NC; c++) { if (rdMask[c]) mc++; if (Va[c] > mv) mv = Va[c]; if (Va[c] !== Va[c]) nan++; }
+      for (let c = 0; c < NC; c++) if (Vf[c] > 0 || V2[c] > 0) sc++;
+      console.log('RDDEBUG mask cells:', mc, 'maxV:', mv, 'NaN:', nan, 'nonzeroV:', sc, 'iters:', iters);
+    }
+    // scanline runs where V is high -> plotter-friendly stripes/spots
+    const allRuns = [];
+    const thr = 0.2;
+    for (let j = 0; j < GH2; j++) {
+      let run = null;
+      for (let i = 0; i <= GW2; i++) {
+        const c = j * GW2 + i;
+        const on = i < GW2 && rdMask[c] && Va[c] > thr;
+        if (on) {
+          if (!run) run = { pts: [], acc: 0, m: 0 };
+          run.pts.push([(i + 0.5) * cw2, (j + 0.5) * ch2 - Va[c] * ch2 * 0.4]);
+          run.acc += attrG[c]; run.m++;
+        } else if (run) {
+          if (run.pts.length >= 2) allRuns.push({ pts: run.pts, closed: false, attr: run.acc / run.m });
+          run = null;
+        }
+      }
+    }
+    const sortedAttr = allRuns.map(r => r.attr).sort((a, b) => a - b);
+    for (const r of allRuns) {
+      let rank = sortedAttr.findIndex(v => v >= r.attr);
+      if (rank < 0) rank = sortedAttr.length - 1;
+      const L = Math.min(layers - 1, Math.floor(rank / (sortedAttr.length || 1) * layers));
+      layerPaths[L].push(catmullPath(r.pts, false, fmt));
+    }
   } else {
     const target = Math.round(100 + P.plotDetail * 40);
     const step = Math.max(1, Math.floor(vis.length / target));
@@ -1626,12 +1756,13 @@ if (location.search.includes('autotest')) {
     updateTimelineLabel(); drawSpark();
     console.log('AUTOTEST: climate loaded =', climate.loaded, 'var =', climate.varName, 'steps =', tl.len);
     setTimeout(() => {
-      for (const s of ['points','contour','rings','hairs','arrows','circles','suns','spirals','ascii']) {
+      for (const s of ['points','contour','rings','flow','rd','hairs','arrows','circles','suns','spirals','ascii']) {
         P.plotStyle = s;
         const svg = buildPlotSVG();
         console.log(`AUTOTEST plot ${s}: ${svg.length} chars, layers: ${(svg.match(/inkscape:groupmode/g) || []).length}`);
       }
-      P.plotStyle = 'contour';
+      P.plotStyle = (location.search.match(/style=(\w+)/) || [, 'contour'])[1];
+      $('plot-style').value = P.plotStyle;
       togglePlotLive(true);
       tl.playing = true;
     }, 1500);
