@@ -146,6 +146,19 @@ button.hi:hover{background:#2f5533}
   </div>
 
   <div class="panel">
+    <div class="pt"><span>Frame sequence</span><span class="badge">stop-motion</span></div>
+    <div class="row"><label>frames</label><input id="seq-frames" type="number" min="2" max="600" value="60" step="1"><span class="val" id="seq-frames-val">60</span></div>
+    <div class="row"><label>preview fps</label><select id="seq-fps">
+      <option value="6">6 fps</option><option value="12" selected>12 fps</option>
+      <option value="24">24 fps</option><option value="30">30 fps</option>
+    </select><span class="val" id="seq-duration">5.0s</span></div>
+    <div class="row"><label>window start (hr)</label><input id="seq-start" type="number" step="1" value="0" disabled><button id="seq-start-mark" title="use current timeline position">use playhead</button></div>
+    <div class="row"><label>window end (hr)</label><input id="seq-end" type="number" step="1" value="0" disabled><button id="seq-end-mark" title="use current timeline position">use playhead</button></div>
+    <div class="row"><button id="export-seq" class="hi">export frame sequence (.zip)</button></div>
+    <div class="stat" id="seq-stat">Renders each frame of the plotter view across the window above (scrub the timeline or use the buttons to set start/end), then bundles them as numbered SVGs in one .zip for external animation. Without climate loaded, frames just vary with shimmer/audio motion at a fixed moment.</div>
+  </div>
+
+  <div class="panel">
     <div class="pt">Export</div>
     <div class="row"><button id="export-ply" class="hi">export displaced .ply</button></div>
     <div class="stat">Saves the haunted cloud exactly as displaced at the current timeline moment (with scan colours if present).</div>
@@ -193,7 +206,7 @@ const P = {
   climGain: 0, climMapping: 'spread', climMap: 'y', climWindow: 168, climTint: false, epochMode: 'single',
   density: 100, colorMode: 'scan', psize: 1.8,
   plotStyle: 'contour', plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210, penW: 0.3,
-  plotPens: 3, plotLayerBy: 'data'
+  plotPens: 3, plotLayerBy: 'data', seqFrames: 60, seqFps: 12
 };
 
 /* ---------- three ---------- */
@@ -269,6 +282,7 @@ const audio = { loaded: false, name: '', env: null, low: null, mid: null, high: 
 const climate = { loaded: false, times: [], series: {}, varName: '', norm: null, min: 0, max: 1, unit: '', windDir: null, source: '',
                   seriesB: null, timesB: [], normB: null, normD: null };
 const tl = { t: 0, len: 0, playing: false, speed: 12 };
+const seq = { start: 0, end: 0 };
 
 /* ---------- wasm edge core (unchanged from original build) ---------- */
 const WASM_B64 = "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";
@@ -913,6 +927,9 @@ function ingestClimate(json, sourceLabel) {
   tlRange.max = tl.len - 1;
   tlRange.value = 0;
   tlRange.disabled = false;
+  seq.start = 0; seq.end = tl.len - 1;
+  $('seq-start').value = seq.start; $('seq-start').disabled = false;
+  $('seq-end').value = seq.end; $('seq-end').disabled = false;
   const sel = $('clim-var');
   sel.innerHTML = '';
   const avail = Object.keys(CLIM_VARS).filter(k =>
@@ -1075,6 +1092,13 @@ const BEHAVIOR = {
 function updateDisplacement(dt) {
   if (!n) return;
   clockT += dt;
+  computeDisplacementFrame();
+}
+
+// the guts of updateDisplacement, minus the clockT advance — lets the frame
+// exporter set tl.t/clockT to arbitrary values and recompute a single still frame
+function computeDisplacementFrame() {
+  if (!n) return;
   const audioArr = audio.loaded ? audio[P.audioBand] : null;
   const haveB = climate.normB != null;
   const primaryNorm = (P.epochMode === 'difference' && haveB) ? climate.normD : climate.norm;
@@ -1553,6 +1577,136 @@ function downloadPlotSVG() {
   URL.revokeObjectURL(url);
 }
 
+/* ---------- zip (store-only, no compression — svgs are text but this needs no deps) ---------- */
+function crc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i];
+    for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function makeZip(files) {
+  const enc = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const data = f.data;
+    const crc = crc32(data);
+    const local = new Uint8Array(30 + nameBytes.length);
+    const dv = new DataView(local.buffer);
+    dv.setUint32(0, 0x04034b50, true);
+    dv.setUint16(4, 20, true);
+    dv.setUint16(6, 0, true);
+    dv.setUint16(8, 0, true);   // store, no compression
+    dv.setUint16(10, 0, true);
+    dv.setUint16(12, 0x21, true);
+    dv.setUint32(14, crc, true);
+    dv.setUint32(18, data.length, true);
+    dv.setUint32(22, data.length, true);
+    dv.setUint16(26, nameBytes.length, true);
+    dv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    chunks.push(local, data);
+
+    const c = new Uint8Array(46 + nameBytes.length);
+    const cdv = new DataView(c.buffer);
+    cdv.setUint32(0, 0x02014b50, true);
+    cdv.setUint16(4, 20, true);
+    cdv.setUint16(6, 20, true);
+    cdv.setUint16(8, 0, true);
+    cdv.setUint16(10, 0, true);
+    cdv.setUint16(12, 0, true);
+    cdv.setUint16(14, 0x21, true);
+    cdv.setUint32(16, crc, true);
+    cdv.setUint32(20, data.length, true);
+    cdv.setUint32(24, data.length, true);
+    cdv.setUint16(28, nameBytes.length, true);
+    cdv.setUint16(30, 0, true);
+    cdv.setUint16(32, 0, true);
+    cdv.setUint16(34, 0, true);
+    cdv.setUint16(36, 0, true);
+    cdv.setUint32(38, 0, true);
+    cdv.setUint32(42, offset, true);
+    c.set(nameBytes, 46);
+    central.push(c);
+
+    offset += local.length + data.length;
+  }
+  const centralStart = offset;
+  let centralSize = 0;
+  for (const c of central) centralSize += c.length;
+  const end = new Uint8Array(22);
+  const edv = new DataView(end.buffer);
+  edv.setUint32(0, 0x06054b50, true);
+  edv.setUint16(8, files.length, true);
+  edv.setUint16(10, files.length, true);
+  edv.setUint32(12, centralSize, true);
+  edv.setUint32(16, centralStart, true);
+  return new Blob([...chunks, ...central, end], { type: 'application/zip' });
+}
+
+/* ---------- frame sequence export ---------- */
+const seqStat = $('seq-stat');
+function updateSeqDuration() {
+  const secs = P.seqFrames / P.seqFps;
+  $('seq-duration').textContent = `≈${secs.toFixed(1)}s`;
+}
+let seqRunning = false;
+async function exportFrameSequence() {
+  if (!n || seqRunning) return;
+  seqRunning = true;
+  const btn = $('export-seq');
+  btn.disabled = true;
+  const origT = tl.t, origClock = clockT, origPlaying = tl.playing;
+  tl.playing = false;
+  const frames = Math.max(2, Math.round(P.seqFrames));
+  const fps = P.seqFps;
+  const haveWindow = climate.loaded && tl.len > 1;
+  const clamp = v => Math.max(0, Math.min(tl.len - 1, v));
+  const start = haveWindow ? clamp(Number($('seq-start').value)) : origT;
+  const end = haveWindow ? clamp(Number($('seq-end').value)) : origT;
+  const pad = (i, w) => String(i).padStart(w, '0');
+  const digits = String(frames).length;
+  const files = [];
+  try {
+    for (let k = 0; k < frames; k++) {
+      const f = frames > 1 ? k / (frames - 1) : 0;
+      tl.t = haveWindow ? start + (end - start) * f : origT;
+      clockT = origClock + k / fps;
+      computeDisplacementFrame();
+      const svg = buildPlotSVG();
+      if (svg) files.push({ name: `frame_${pad(k + 1, digits)}.svg`, data: new TextEncoder().encode(svg) });
+      if (k % 5 === 0) {
+        seqStat.textContent = `Rendering frame ${k + 1}/${frames}…`;
+        await new Promise(r => setTimeout(r, 0)); // yield so the UI can repaint
+      }
+    }
+    if (!files.length) { seqStat.textContent = 'Nothing to export — load a point cloud first.'; return; }
+    seqStat.textContent = `Zipping ${files.length} frames…`;
+    await new Promise(r => setTimeout(r, 0));
+    const blob = makeZip(files);
+    const stamp = haveWindow ? `${climate.times[Math.round(start)]}_to_${climate.times[Math.round(end)]}`.replace(/[:T]/g, '-') : 'manual';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `haunted_frames_${P.plotStyle}_${frames}x_${stamp}.zip`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    const secs = (frames / fps).toFixed(1);
+    seqStat.textContent = `Exported ${files.length} frames as one .zip — assemble at ${fps} fps for ≈${secs}s of footage.`;
+  } finally {
+    tl.t = origT; clockT = origClock; tl.playing = origPlaying;
+    computeDisplacementFrame();
+    tlRange.value = tl.t;
+    updateTimelineLabel();
+    drawSpark();
+    btn.disabled = false;
+    seqRunning = false;
+  }
+}
+
 /* ---------- export ---------- */
 function exportPLY() {
   if (!n) return;
@@ -1649,6 +1803,14 @@ $('plot-layerby').addEventListener('change', e => P.plotLayerBy = e.target.value
 $('plot-preview-btn').addEventListener('click', () => togglePlotLive());
 $('plot-close').addEventListener('click', () => togglePlotLive(false));
 $('plot-svg').addEventListener('click', downloadPlotSVG);
+$('seq-frames').addEventListener('input', e => { P.seqFrames = Math.max(2, Math.round(Number(e.target.value) || 60)); $('seq-frames-val').textContent = P.seqFrames; updateSeqDuration(); });
+$('seq-fps').addEventListener('change', e => { P.seqFps = Number(e.target.value); updateSeqDuration(); });
+$('seq-start').addEventListener('input', e => seq.start = Number(e.target.value));
+$('seq-end').addEventListener('input', e => seq.end = Number(e.target.value));
+$('seq-start-mark').addEventListener('click', () => { seq.start = tl.t; $('seq-start').value = Math.round(tl.t); });
+$('seq-end-mark').addEventListener('click', () => { seq.end = tl.t; $('seq-end').value = Math.round(tl.t); });
+$('export-seq').addEventListener('click', exportFrameSequence);
+updateSeqDuration();
 $('flip-axis').addEventListener('click', () => { if (rawPos) { upTurns++; rebuildBase(); } });
 $('export-ply').addEventListener('click', exportPLY);
 
