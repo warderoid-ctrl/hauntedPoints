@@ -37,6 +37,8 @@ button.hi:hover{background:#2f5533}
 #tl-top{display:flex;align-items:center;gap:10px}
 #tl-label{font-size:12px;color:#c5ccd9;font-variant-numeric:tabular-nums;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #spark{width:100%;height:52px;display:block;border-radius:8px;background:#0b0d12;border:1px solid #232937;cursor:crosshair;touch-action:none}
+#planet-spark{width:100%;height:40px;display:block;border-radius:8px;background:#0b0d12;border:1px solid #232937;cursor:crosshair;touch-action:none;margin:.2rem 0 .55rem}
+#planet-range{flex:1;min-width:0;accent-color:#6f9ec9}
 #tl-range{width:100%;accent-color:#c96f4a}
 .badge{font-size:10px;padding:.15rem .45rem;border-radius:99px;border:1px solid #2f3646;color:#8b93a7}
 #hud{position:absolute;left:12px;top:10px;font-size:11px;color:#7d89a6;pointer-events:none;text-shadow:0 1px 3px #000}
@@ -119,6 +121,40 @@ button.hi:hover{background:#2f5533}
   </div>
 
   <div class="panel">
+    <div class="pt"><span>Planetary layer</span><span class="badge">NOAA / OWID</span></div>
+    <div class="row"><label>archive</label><select id="planet-src">
+      <option value="noaa">NOAA GML &mdash; global gases</option>
+      <option value="owid">Our World in Data &mdash; emissions</option>
+    </select></div>
+    <div class="row"><label>series</label><select id="planet-series"></select></div>
+    <div class="row" id="row-planet-read"><label>reading</label><select id="planet-read">
+      <option value="trend">trend (deseasonalised)</option>
+      <option value="average">monthly average</option>
+    </select></div>
+    <div class="row" id="row-planet-entity" style="display:none"><label>entity</label><select id="planet-entity" disabled><option>fetch a series first</option></select></div>
+    <div class="row"><button id="fetch-planet" class="hi">fetch series</button></div>
+    <div class="row"><label>bind to</label><select id="planet-bind">
+      <option value="deep" selected>deep time (own timeline)</option>
+      <option value="bound">site timeline (resampled)</option>
+    </select></div>
+    <div class="row"><label>scale</label><select id="planet-scale"><option value="linear" selected>linear</option><option value="log">log</option></select></div>
+    <div class="row"><label>behaviour</label><select id="planet-beh">
+      <option value="weight" selected>weight (press + compact)</option>
+      <option value="swell">swell along normals</option>
+      <option value="press">press to midplane</option>
+      <option value="drift">drift apart</option>
+    </select></div>
+    <div class="row"><label>planet &rarr; points</label><input id="planet-gain" type="range" min="0" max="2" value="0" step="0.01"><span class="val" id="planet-gain-val">0.00</span></div>
+    <div class="row"><label>mapping</label><select id="planet-mapping"><option value="uniform" selected>whole cloud, one moment</option><option value="spread">history spread across cloud</option></select></div>
+    <div class="row"><label>spread along</label><select id="planet-map"><option value="index">point index</option><option value="x">x axis</option><option value="y">y axis</option><option value="z" selected>z axis</option><option value="radial">radial</option></select></div>
+    <div class="row"><label>history window</label><input id="planet-window" type="range" min="1" max="400" value="60" step="1"><span class="val" id="planet-window-val">60</span></div>
+    <div class="row"><label>tint points by data</label><input id="planet-tint" type="checkbox" style="flex:0"></div>
+    <canvas id="planet-spark" height="40"></canvas>
+    <div class="row"><button id="planet-play">&#9654;</button><input id="planet-range" type="range" min="0" max="0" value="0" step="0.25" disabled></div>
+    <div class="stat" id="planet-stat">No planetary data yet. NOAA gives the gas itself (CO&#8322; 1979&ndash;, CH&#8324; 1983&ndash;, N&#8322;O 2001&ndash;, SF&#8326; 1997&ndash;); OWID gives what was emitted, per country, back to 1750. In deep time the series scrubs on its own slider below; bound to the site timeline it is resampled onto the ERA5 hours.</div>
+  </div>
+
+  <div class="panel">
     <div class="pt">Plotter</div>
     <div class="row"><label>style</label><select id="plot-style">
       <option value="points">points (stipple)</option>
@@ -140,7 +176,7 @@ button.hi:hover{background:#2f5533}
     <div class="row"><label>page h (mm)</label><input id="page-h" type="range" min="100" max="420" value="210" step="1"><span class="val" id="page-h-val">210</span></div>
     <div class="row"><label>pen (mm)</label><input id="pen-w" type="range" min="0.05" max="1" value="0.3" step="0.01"><span class="val" id="pen-w-val">0.30</span></div>
     <div class="row"><label>pens / layers</label><select id="plot-pens"><option value="1">1 pen</option><option value="2">2 pens</option><option value="3" selected>3 pens</option><option value="4">4 pens</option></select></div>
-    <div class="row"><label>layer by</label><select id="plot-layerby"><option value="data" selected>data value</option><option value="scan">scan colour</option><option value="edge">edge score</option><option value="depth">depth</option></select></div>
+    <div class="row"><label>layer by</label><select id="plot-layerby"><option value="data" selected>data value</option><option value="planet">planetary value</option><option value="scan">scan colour</option><option value="edge">edge score</option><option value="depth">depth</option></select></div>
     <div class="row"><button id="plot-preview-btn">live plot view</button><button id="plot-svg" class="hi">download SVG</button></div>
     <div class="stat">Plots the haunted cloud exactly as seen from the current camera. Contours and rings join points into curves; the other styles draw a mark per point sized by how far data has displaced it.</div>
   </div>
@@ -195,6 +231,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ---------- dom ---------- */
 const $ = id => document.getElementById(id);
 const geoStat = $('geo-stat'), audioStat = $('audio-stat'), climStat = $('clim-stat');
+const planetStat = $('planet-stat');
 const engineBadge = $('engine-badge'), tlLabel = $('tl-label');
 const spark = $('spark'), sparkCtx = spark.getContext('2d');
 const tlRange = $('tl-range'), playBtn = $('play');
@@ -204,6 +241,8 @@ const P = {
   dispMode: 'normal', amp: 0.5, baseDrive: 0.15, shimmer: 0.25,
   audioBand: 'env', audioMap: 'y', audioGain: 0,
   climGain: 0, climMapping: 'spread', climMap: 'y', climWindow: 168, climTint: false, epochMode: 'single',
+  planetGain: 0, planetBind: 'deep', planetScale: 'linear', planetBeh: 'weight',
+  planetMapping: 'uniform', planetMap: 'z', planetWindow: 60, planetTint: false,
   density: 100, colorMode: 'scan', psize: 1.8,
   plotStyle: 'contour', plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210, penW: 0.3,
   plotPens: 3, plotLayerBy: 'data', seqFrames: 60, seqFps: 12
@@ -255,6 +294,7 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   drawSpark();
+  drawPlanetSpark();
 }
 new ResizeObserver(resize).observe(viewport);
 window.addEventListener('resize', resize);
@@ -271,6 +311,7 @@ let edgeScores = new Float32Array(0);
 let hauntW = new Float32Array(0);
 let audioU = new Float32Array(0);      // per-point signal coordinate 0..1
 let climU = new Float32Array(0);       // per-point climate history coordinate 0..1
+let planetU = new Float32Array(0);     // per-point planetary history coordinate 0..1
 let srcColors = null;                  // colors before data tinting
 let visMask = null;                    // Uint8Array density mask
 let upTurns = 0;                       // rotate up-axis presses
@@ -283,6 +324,10 @@ const climate = { loaded: false, times: [], series: {}, varName: '', norm: null,
                   seriesB: null, timesB: [], normB: null, normD: null };
 const tl = { t: 0, len: 0, playing: false, speed: 12 };
 const seq = { start: 0, end: 0 };
+// the slow layer under the site: global gas concentrations / emitted totals
+const planet = { loaded: false, source: '', label: '', unit: '', slug: '',
+                 years: [], values: [], norm: null, min: 0, max: 1,
+                 bound: null, t: 0, playing: false };
 
 /* ---------- wasm edge core (unchanged from original build) ---------- */
 const WASM_B64 = "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";
@@ -598,6 +643,7 @@ function rebuildBase() {
   rebuildGeometry();
   recomputeAudioU();
   recomputeClimU();
+  recomputePlanetU();
   recomputeDensityMask();
   recomputeEdges();
 }
@@ -703,6 +749,7 @@ function setLiveFrame(f32) {
     computeEdgesNow();
     recomputeAudioU();
     recomputeClimU();
+    recomputePlanetU();
   }
   if (now - live.lastStat > 1000) {
     live.lastStat = now;
@@ -742,6 +789,7 @@ function kinFreeze(close = true) {
   sourceName = 'kinect frame';
   recomputeAudioU();
   recomputeClimU();
+  recomputePlanetU();
   recomputeEdges();
 }
 
@@ -860,6 +908,7 @@ function computeMapU(mode) {
 }
 function recomputeAudioU() { audioU = computeMapU(P.audioMap); }
 function recomputeClimU() { climU = computeMapU(P.climMap); }
+function recomputePlanetU() { planetU = computeMapU(P.planetMap); }
 
 /* ---------- climate data ---------- */
 const CLIM_VARS = {
@@ -943,6 +992,8 @@ function ingestClimate(json, sourceLabel) {
   setClimateVariable(avail.includes('wind_speed_10m') ? 'wind_speed_10m' : avail[0]);
   if (P.climGain === 0) { P.climGain = 0.8; $('clim-gain').value = 0.8; $('clim-gain-val').textContent = '0.80'; }
   climStat.textContent = `${sourceLabel} — ${tl.len.toLocaleString()} hourly steps (${climate.times[0]} → ${climate.times[tl.len-1]}).`;
+  buildPlanetBound();   // a new site window needs the planetary curve resampled onto it
+  if (planet.loaded) { updatePlanetStat(); drawPlanetSpark(); }
 }
 
 function setClimateVariable(name) {
@@ -1004,6 +1055,324 @@ function climValueAt(t) {
   const rawArr = climate.series[key];
   const raw = rawArr && rawArr[i] != null ? rawArr[i] : null;
   return { norm: nv, raw };
+}
+
+/* ---------- planetary data (NOAA GML gases / OWID emissions) ---------- */
+// NOAA globally averaged marine surface means. All four files share the same
+// columns: year month decimal average average_unc trend trend_unc
+const NOAA_BASE = 'https://gml.noaa.gov/webdata/ccgg/trends/';
+const NOAA_GASES = {
+  co2: { label: 'CO₂ — global monthly mean', unit: 'ppm', path: 'co2/co2_mm_gl.txt' },
+  ch4: { label: 'CH₄ — global monthly mean', unit: 'ppb', path: 'ch4/ch4_mm_gl.txt' },
+  n2o: { label: 'N₂O — global monthly mean', unit: 'ppb', path: 'n2o/n2o_mm_gl.txt' },
+  sf6: { label: 'SF₆ — global monthly mean', unit: 'ppt', path: 'sf6/sf6_mm_gl.txt' }
+};
+// OWID single-indicator grapher CSVs: Entity,Code,Year,<value> — ~0.8 MB each,
+// annual, per country, back to 1750 (much lighter than the 14 MB combined CSV)
+const OWID_SERIES = {
+  'annual-co2-emissions-per-country': { label: 'annual CO₂ emissions', unit: 't' },
+  // note: the obvious slug 'cumulative-co2-emissions' 301s, and the redirect
+  // response carries no ACAO header, so a browser fetch fails CORS — use the target
+  'cumulative-co-emissions':          { label: 'cumulative CO₂ emissions', unit: 't' },
+  'co-emissions-per-capita':          { label: 'CO₂ emissions per capita', unit: 't' },
+  'consumption-co2-emissions':        { label: 'consumption-based CO₂', unit: 't' },
+  'total-ghg-emissions':              { label: 'all greenhouse gases (incl. land use)', unit: 't CO₂e' },
+  'methane-emissions':                { label: 'methane emissions', unit: 't CO₂e' },
+  'nitrous-oxide-emissions':          { label: 'nitrous oxide emissions', unit: 't CO₂e' },
+  'temperature-anomaly':              { label: 'global temperature anomaly', unit: '°C' }
+};
+
+const owidCache = new Map();   // slug -> { byEntity, valueName }
+let owidCurrent = null;        // parsed table for the series on screen
+
+function fillPlanetSeriesSelect() {
+  const src = $('planet-src').value;
+  const sel = $('planet-series');
+  const table = src === 'noaa' ? NOAA_GASES : OWID_SERIES;
+  sel.innerHTML = '';
+  for (const k of Object.keys(table)) {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = table[k].label;
+    sel.appendChild(o);
+  }
+  $('row-planet-read').style.display = src === 'noaa' ? '' : 'none';
+  $('row-planet-entity').style.display = src === 'owid' ? '' : 'none';
+}
+
+function parseNOAA(text, reading) {
+  const years = [], values = [];
+  for (const line of text.split('\n')) {
+    if (!line || line[0] === '#') continue;
+    const p = line.trim().split(/\s+/);
+    if (p.length < 6) continue;
+    const dec = +p[2], v = +(reading === 'average' ? p[3] : p[5]);
+    if (!isFinite(dec) || !isFinite(v) || v < -99) continue; // -99.99 marks a gap
+    years.push(dec); values.push(v);
+  }
+  return { years, values };
+}
+
+function splitCSVLine(s) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) { if (c === '"') { if (s[i+1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseOWID(text) {
+  const lines = text.split('\n');
+  const head = splitCSVLine(lines[0]);
+  const byEntity = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    const L = lines[i];
+    if (!L) continue;
+    const p = splitCSVLine(L.charCodeAt(L.length-1) === 13 ? L.slice(0, -1) : L);
+    const y = +p[2], v = +p[3];
+    if (!isFinite(y) || !isFinite(v) || p[3] === '') continue;
+    let a = byEntity.get(p[0]);
+    if (!a) { a = []; byEntity.set(p[0], a); }
+    a.push([y, v]);
+  }
+  for (const a of byEntity.values()) a.sort((x, z) => x[0] - z[0]);
+  return { byEntity, valueName: head[3] || 'value' };
+}
+
+function fillEntitySelect(table, keep) {
+  const sel = $('planet-entity');
+  const names = [...table.byEntity.keys()].sort();
+  // World first — the planetary total is the point; countries are the decomposition
+  const ordered = names.filter(x => x === 'World').concat(names.filter(x => x !== 'World'));
+  sel.innerHTML = '';
+  for (const nm of ordered) {
+    const o = document.createElement('option');
+    o.value = nm; o.textContent = `${nm} (${table.byEntity.get(nm).length} yr)`;
+    sel.appendChild(o);
+  }
+  sel.disabled = false;
+  sel.value = (keep && table.byEntity.has(keep)) ? keep : (table.byEntity.has('World') ? 'World' : ordered[0]);
+  return sel.value;
+}
+
+async function fetchPlanet() {
+  const src = $('planet-src').value, key = $('planet-series').value;
+  try {
+    if (src === 'noaa') {
+      const g = NOAA_GASES[key];
+      planetStat.textContent = `Fetching ${g.label} from NOAA GML…`;
+      const r = await fetch(NOAA_BASE + g.path);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const reading = $('planet-read').value;
+      const { years, values } = parseNOAA(await r.text(), reading);
+      if (!years.length) throw new Error('no usable rows in the NOAA file');
+      setPlanetSeries(years, values, `${g.label} (${reading})`, g.unit,
+                      `NOAA GML ${NOAA_BASE}${g.path}`, key);
+    } else {
+      const s = OWID_SERIES[key];
+      let table = owidCache.get(key);
+      if (!table) {
+        planetStat.textContent = `Fetching ${s.label} from Our World in Data…`;
+        const r = await fetch(`https://ourworldindata.org/grapher/${key}.csv`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        table = parseOWID(await r.text());
+        owidCache.set(key, table);
+      }
+      owidCurrent = table;
+      const entity = fillEntitySelect(table, planet.slug === key ? $('planet-entity').value : null);
+      applyOWIDEntity(key, entity);
+    }
+  } catch (err) {
+    console.warn(err);
+    planetStat.textContent = 'Planetary fetch failed: ' + err.message;
+  }
+}
+
+function applyOWIDEntity(key, entity) {
+  const s = OWID_SERIES[key], rows = owidCurrent.byEntity.get(entity);
+  if (!rows || !rows.length) { planetStat.textContent = `No rows for ${entity}.`; return; }
+  setPlanetSeries(rows.map(r => r[0]), rows.map(r => r[1]),
+                  `${entity} — ${owidCurrent.valueName}`, s.unit,
+                  `Our World in Data · ${key} · ${entity}`, key);
+}
+
+function setPlanetSeries(years, values, label, unit, source, slug) {
+  planet.years = years; planet.values = values;
+  planet.label = label; planet.unit = unit; planet.source = source; planet.slug = slug;
+  planet.loaded = true;
+  planet.t = years.length - 1;   // start at now — the accumulated present
+  recomputePlanetNorm();
+  const pr = $('planet-range');
+  pr.max = Math.max(0, years.length - 1);
+  pr.value = planet.t;
+  pr.disabled = P.planetBind === 'bound';   // the site timeline drives it in bound mode
+  if (P.planetGain === 0) { P.planetGain = 0.8; $('planet-gain').value = 0.8; $('planet-gain-val').textContent = '0.80'; }
+  updatePlanetStat();
+}
+
+function recomputePlanetNorm() {
+  if (!planet.loaded) return;
+  const v = planet.values, m = v.length;
+  let mn = Infinity, mx = -Infinity;
+  for (const x of v) { if (x < mn) mn = x; if (x > mx) mx = x; }
+  if (!isFinite(mn)) { mn = 0; mx = 1; }
+  planet.min = mn; planet.max = mx;
+  const norm = new Float32Array(m);
+  if (P.planetScale === 'log') {
+    const d = Math.log1p(mx - mn) || 1;
+    for (let i = 0; i < m; i++) norm[i] = Math.log1p(v[i] - mn) / d;
+  } else {
+    const span = (mx - mn) || 1;
+    for (let i = 0; i < m; i++) norm[i] = (v[i] - mn) / span;
+  }
+  planet.norm = norm;
+  buildPlanetBound();
+  drawPlanetSpark();
+}
+
+// decimal year for an ERA5 "2024-03-01T13:00" stamp, so the two clocks can meet
+function isoToDecYear(s) {
+  const y = +s.slice(0, 4), mo = +s.slice(5, 7), d = +s.slice(8, 10), h = +s.slice(11, 13) || 0;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const cum = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  const doy = cum[mo - 1] + (leap && mo > 2 ? 1 : 0) + (d - 1) + h / 24;
+  return y + doy / (leap ? 366 : 365);
+}
+
+// resample the planetary curve onto the hourly ERA5 timeline (epoch A's stamps)
+function buildPlanetBound() {
+  planet.bound = null;
+  if (!planet.loaded || !climate.loaded || !tl.len) return;
+  const ys = planet.years, nr = planet.norm, m = ys.length;
+  if (!m) return;
+  const out = new Float32Array(tl.len);
+  let k = 0;
+  for (let i = 0; i < tl.len; i++) {
+    const dy = isoToDecYear(climate.times[i]);
+    while (k < m - 2 && ys[k + 1] < dy) k++;
+    if (dy <= ys[0]) out[i] = nr[0];
+    else if (dy >= ys[m - 1]) out[i] = nr[m - 1];   // held flat past the last observation
+    else { const f = (dy - ys[k]) / ((ys[k + 1] - ys[k]) || 1); out[i] = nr[k] * (1 - f) + nr[k + 1] * f; }
+  }
+  planet.bound = out;
+}
+
+function planetActive() {
+  if (!planet.loaded || !planet.norm || P.planetGain <= 0) return null;
+  if (P.planetBind === 'bound') {
+    if (!planet.bound || !tl.len) return null;
+    return { norm: planet.bound, len: tl.len, t: tl.t };
+  }
+  return { norm: planet.norm, len: planet.norm.length, t: planet.t };
+}
+
+function planetSampleAt(t, norm, len) {
+  const tt = Math.max(0, Math.min(len - 1, t));
+  const i0 = tt | 0, f = tt - i0, i1 = Math.min(len - 1, i0 + 1);
+  return norm[i0] * (1 - f) + norm[i1] * f;
+}
+
+function planetValPoint(i) { // mirrors the sampling the displacement does
+  const a = planetActive();
+  if (!a) return 0;
+  const t = (P.planetMapping === 'spread' && a.len > 1) ? a.t - P.planetWindow * planetU[i] : a.t;
+  return planetSampleAt(t, a.norm, a.len);
+}
+
+function planetMomentLabel() {
+  if (!planet.loaded) return '';
+  if (P.planetBind === 'bound') {
+    if (!climate.loaded || !tl.len) return 'bound (no site timeline yet)';
+    const dy = isoToDecYear(climate.times[Math.max(0, Math.min(tl.len - 1, Math.round(tl.t)))]);
+    return dy.toFixed(3);
+  }
+  const i = Math.max(0, Math.min(planet.years.length - 1, Math.round(planet.t)));
+  return planet.years[i].toFixed(3);
+}
+
+function planetRawNow() {
+  if (!planet.loaded) return null;
+  if (P.planetBind === 'bound') {
+    if (!climate.loaded || !tl.len) return null;
+    const dy = isoToDecYear(climate.times[Math.max(0, Math.min(tl.len - 1, Math.round(tl.t)))]);
+    const ys = planet.years, m = ys.length;
+    if (dy <= ys[0]) return planet.values[0];
+    if (dy >= ys[m - 1]) return planet.values[m - 1];
+    let k = 0;
+    while (k < m - 2 && ys[k + 1] < dy) k++;
+    const f = (dy - ys[k]) / ((ys[k + 1] - ys[k]) || 1);
+    return planet.values[k] * (1 - f) + planet.values[k + 1] * f;
+  }
+  return planet.values[Math.max(0, Math.min(planet.values.length - 1, Math.round(planet.t)))];
+}
+
+function fmtBig(v) {
+  if (v == null) return '—';
+  const a = Math.abs(v);
+  if (a >= 1e12) return (v / 1e12).toFixed(2) + ' T';
+  if (a >= 1e9) return (v / 1e9).toFixed(2) + ' G';
+  if (a >= 1e6) return (v / 1e6).toFixed(2) + ' M';
+  if (a >= 1e4) return (v / 1e3).toFixed(1) + ' k';
+  return (Math.round(v * 1000) / 1000).toString();
+}
+
+function updatePlanetStat() {
+  if (!planet.loaded) return;
+  const ys = planet.years, m = ys.length;
+  const step = m > 1 ? (ys[m - 1] - ys[0]) / (m - 1) : 1;
+  const cadence = step < 0.5 ? 'monthly' : 'annual';
+  const winSpan = (P.planetWindow * step);
+  const bits = [];
+  bits.push(`${planet.label} · ${m.toLocaleString()} ${cadence} samples, ${ys[0].toFixed(1)}–${ys[m-1].toFixed(1)}.`);
+  bits.push(`Now: ${fmtBig(planetRawNow())} ${planet.unit} @ ${planetMomentLabel()}.`);
+  bits.push(`Range ${fmtBig(planet.min)}–${fmtBig(planet.max)} ${planet.unit}${P.planetScale === 'log' ? ', log-scaled' : ''}.`);
+  if (P.planetBind === 'bound') {
+    bits.push(climate.loaded
+      ? `Resampled onto ${tl.len.toLocaleString()} ERA5 hours — over a window this short the curve barely moves, which is the reading: it does not come back down.`
+      : `Bound mode needs ERA5 loaded; fetch the climate dataset or switch back to deep time.`);
+  } else if (P.planetMapping === 'spread') {
+    bits.push(`Each point sits in its own year: the cloud spans ~${winSpan.toFixed(winSpan < 5 ? 1 : 0)} years of history at once.`);
+  }
+  bits.push(`Source: ${planet.source}`);
+  planetStat.textContent = bits.join(' ');
+}
+
+function drawPlanetSpark() {
+  const cv = $('planet-spark');
+  const w = cv.clientWidth || 300, dpr = window.devicePixelRatio || 1;
+  cv.width = Math.floor(w * dpr); cv.height = Math.floor(40 * dpr);
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, 40);
+  if (!planet.loaded || !planet.norm) return;
+  const a = P.planetBind === 'bound' && planet.bound ? planet.bound : planet.norm;
+  const N = a.length;
+  c.strokeStyle = '#6f9ec9'; c.lineWidth = 1;
+  c.beginPath();
+  for (let x = 0; x < w; x++) {
+    const idx = Math.min(N - 1, Math.floor(x / w * N));
+    const y = 36 - a[idx] * 32;
+    x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+  }
+  c.stroke();
+  const t = P.planetBind === 'bound' ? tl.t : planet.t;
+  const px = N > 1 ? Math.max(0, Math.min(1, t / (N - 1))) * w : 0;
+  c.strokeStyle = '#c96f4a'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(px, 2); c.lineTo(px, 38); c.stroke();
+}
+
+function seekPlanetSpark(ev) {
+  if (!planet.loaded || P.planetBind === 'bound') return;
+  const cv = $('planet-spark'), rect = cv.getBoundingClientRect();
+  const f = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+  planet.t = f * (planet.norm.length - 1);
+  $('planet-range').value = planet.t;
+  updatePlanetStat();
+  drawPlanetSpark();
 }
 
 /* ---------- timeline ui ---------- */
@@ -1097,6 +1466,10 @@ function updateDisplacement(dt) {
 
 // the guts of updateDisplacement, minus the clockT advance — lets the frame
 // exporter set tl.t/clockT to arbitrary values and recompute a single still frame
+// planetary frame state — read inside displaceInto so the (already long)
+// argument list doesn't grow again; the slow layer applies to both epochs alike
+const PF = { on: false, norm: null, len: 0, t: 0, spread: false, beh: 'weight', tint: false, climTint: false };
+
 function computeDisplacementFrame() {
   if (!n) return;
   const audioArr = audio.loaded ? audio[P.audioBand] : null;
@@ -1107,7 +1480,14 @@ function computeDisplacementFrame() {
   const dirA = climOn ? ((P.epochMode === 'difference' && haveB) ? climate.seriesB.wind_direction_10m : climate.series.wind_direction_10m) : null;
   const len = tl.len;
   const spread = P.climMapping === 'spread' && len > 1;
-  const tint = P.climTint && climOn && srcColors && colAttr;
+  const pa = planetActive();
+  PF.on = !!pa;
+  if (pa) { PF.norm = pa.norm; PF.len = pa.len; PF.t = pa.t; }
+  PF.spread = P.planetMapping === 'spread' && PF.on && PF.len > 1;
+  PF.beh = P.planetBeh;
+  PF.tint = P.planetTint && PF.on;
+  PF.climTint = P.climTint && climOn;
+  const tint = (PF.climTint || PF.tint) && srcColors && colAttr;
   displaceInto(displaced, climOn ? primaryNorm : null, dirA, tint ? colAttr.array : null, audioArr, beh, len, spread);
   posAttr.needsUpdate = true;
   if (tint) colAttr.needsUpdate = true;
@@ -1189,12 +1569,40 @@ function displaceInto(buf, normArr, dirArr, tc, audioArr, beh, len, spread) {
       }
     }
 
+    // planetary layer: the slow accumulation the site sits inside
+    let vP = 0;
+    if (PF.on) {
+      const tt = PF.spread ? PF.t - P.planetWindow * planetU[i] : PF.t;
+      vP = planetSampleAt(tt, PF.norm, PF.len);
+      const pw = A * hauntW[i] * P.planetGain;
+      if (PF.beh === 'weight') { // accumulated mass presses down and draws inward
+        dy -= vP * pw * 1.3;
+        dx -= bx * vP * P.planetGain * 0.35;
+        dz -= bz * vP * P.planetGain * 0.35;
+      } else if (PF.beh === 'press') { // flattened toward the midplane
+        dy -= by * vP * P.planetGain * 0.85;
+      } else if (PF.beh === 'drift') { // the form disperses as the total climbs
+        const h1 = hash1(i + 104729)*2-1, h2 = hash1(i + 1299709)*2-1, h3 = hash1(i + 15485863)*2-1;
+        const l = Math.hypot(h1, h2, h3) || 1;
+        dx += h1/l * vP * pw * 1.6; dy += h2/l * vP * pw * 1.6; dz += h3/l * vP * pw * 1.6;
+      } else { // swell along normals
+        const nm = normals[i] || [0,1,0];
+        dx += nm[0] * vP * pw; dy += nm[1] * vP * pw; dz += nm[2] * vP * pw;
+      }
+    }
+
     buf[i*3] = bx + dx; buf[i*3+1] = by + dy; buf[i*3+2] = bz + dz;
-    if (tc) { // blend toward a warm data tint by local value
-      const t = vC * 0.75;
-      tc[i*3]   = srcColors[i*3]   + (0.95 - srcColors[i*3])   * t;
-      tc[i*3+1] = srcColors[i*3+1] + (0.42 - srcColors[i*3+1]) * t;
-      tc[i*3+2] = srcColors[i*3+2] + (0.22 - srcColors[i*3+2]) * t;
+    if (tc) {
+      let r = srcColors[i*3], g = srcColors[i*3+1], b = srcColors[i*3+2];
+      if (PF.climTint) { // warm tint by local weather value
+        const t = vC * 0.75;
+        r += (0.95 - r) * t; g += (0.42 - g) * t; b += (0.22 - b) * t;
+      }
+      if (PF.tint) { // sooty tint by planetary value — a different register to the weather
+        const t = vP * 0.8;
+        r += (0.17 - r) * t; g += (0.14 - g) * t; b += (0.21 - b) * t;
+      }
+      tc[i*3] = r; tc[i*3+1] = g; tc[i*3+2] = b;
     }
   }
 }
@@ -1269,12 +1677,18 @@ function buildPlotLayers() {
   // layer assignment attribute 0..1 per point
   let dmin = Infinity, dmax = -Infinity;
   for (let k = 0; k < vis.length; k++) { dmin = Math.min(dmin, depth[k]); dmax = Math.max(dmax, depth[k]); }
+  const planetOn = !!planetActive();
   const layerAttr = k => {
     const i = vis[k];
     if (P.plotLayerBy === 'scan' && baseCol) return Math.max(0, Math.min(1, (baseCol[i*3]*0.35 + baseCol[i*3+1]*0.5 + baseCol[i*3+2]*0.15)));
     if (P.plotLayerBy === 'edge') return edgeScores[i] ?? 0;
     if (P.plotLayerBy === 'depth') return dmax > dmin ? (depth[k] - dmin) / (dmax - dmin) : 0;
-    return climate.loaded ? climValPoint(i) : (edgeScores[i] ?? 0); // 'data' falls back to edges
+    if (P.plotLayerBy === 'planet') return planetOn ? planetValPoint(i) : (edgeScores[i] ?? 0);
+    // 'data': whichever data layers are live, else edges
+    if (climate.loaded && planetOn) return Math.max(0, Math.min(1, climValPoint(i) * 0.5 + planetValPoint(i) * 0.5));
+    if (climate.loaded) return climValPoint(i);
+    if (planetOn) return planetValPoint(i);
+    return edgeScores[i] ?? 0;
   };
   const layerOf = k => Math.min(layers - 1, Math.floor(layerAttr(k) * layers));
   const layerPaths = Array.from({ length: layers }, () => []);
@@ -1508,6 +1922,7 @@ function buildPlotLayers() {
   meta.push(`source scan: ${sourceName}`);
   if (audio.loaded) meta.push(`audio: ${audio.name} (${P.audioBand})`);
   if (climate.loaded) meta.push(`climate: ${climate.source} · ${climate.varName} @ ${climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))]} UTC`);
+  if (planetOn) meta.push(`planetary: ${planet.source} · ${planet.label} = ${fmtBig(planetRawNow())} ${planet.unit} @ ${planetMomentLabel()} (${P.planetBind}, ${P.planetBeh}, gain ${P.planetGain})`);
   return { W, H, paths: layerPaths, texts: layerTexts, meta };
 }
 
@@ -1723,6 +2138,11 @@ function exportPLY() {
     lines.push(`comment climate dataset: ${climate.source}`);
     lines.push(`comment variable: ${climate.varName}, moment: ${climate.times[i]} UTC, gain ${P.climGain}`);
   }
+  if (planetActive()) {
+    lines.push(`comment planetary dataset: ${planet.source}`);
+    lines.push(`comment series: ${planet.label} = ${fmtBig(planetRawNow())} ${planet.unit} @ ${planetMomentLabel()}`);
+    lines.push(`comment planetary binding: ${P.planetBind}, ${P.planetBeh}, ${P.planetScale} scale, gain ${P.planetGain}`);
+  }
   lines.push(`element vertex ${idx.length}`);
   lines.push('property float x', 'property float y', 'property float z');
   if (hasCol) lines.push('property uchar red', 'property uchar green', 'property uchar blue');
@@ -1732,11 +2152,12 @@ function exportPLY() {
     if (hasCol) line += ` ${Math.round(baseCol[i*3]*255)} ${Math.round(baseCol[i*3+1]*255)} ${Math.round(baseCol[i*3+2]*255)}`;
     lines.push(line);
   }
-  const stamp = climate.loaded ? climate.times[Math.round(tl.t)].replace(/[:T]/g, '-') : 'manual';
+  const stamp = climate.loaded ? climate.times[Math.round(tl.t)].replace(/[:T]/g, '-')
+              : (planet.loaded ? planetMomentLabel() : 'manual');
   const blob = new Blob([lines.join('\n')], { type: 'application/octet-stream' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `haunted_${(climate.varName || 'points')}_${stamp}.ply`;
+  a.download = `haunted_${(climate.varName || (planet.loaded ? planet.slug : '') || 'points')}_${stamp}.ply`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -1786,6 +2207,42 @@ $('climate-json').addEventListener('change', async e => {
   try { ingestClimate(JSON.parse(await f.text()), f.name); }
   catch (err) { climStat.textContent = 'Could not parse JSON: ' + err.message; }
 });
+/* planetary layer */
+bindRange('planet-gain', 'planetGain', v => v.toFixed(2));
+bindRange('planet-window', 'planetWindow', null, updatePlanetStat);
+$('planet-src').addEventListener('change', () => { fillPlanetSeriesSelect(); });
+$('planet-series').addEventListener('change', () => {
+  // switching series inside OWID invalidates the entity list until the next fetch
+  if ($('planet-src').value === 'owid') { $('planet-entity').disabled = true; $('planet-entity').innerHTML = '<option>fetch a series first</option>'; }
+});
+$('planet-entity').addEventListener('change', e => {
+  if (owidCurrent) applyOWIDEntity($('planet-series').value, e.target.value);
+});
+$('fetch-planet').addEventListener('click', fetchPlanet);
+$('planet-bind').addEventListener('change', e => {
+  P.planetBind = e.target.value;
+  $('planet-range').disabled = !planet.loaded || P.planetBind === 'bound';
+  if (P.planetBind === 'bound') { planet.playing = false; $('planet-play').classList.remove('on'); $('planet-play').innerHTML = '&#9654;'; buildPlanetBound(); }
+  updatePlanetStat(); drawPlanetSpark();
+});
+$('planet-scale').addEventListener('change', e => { P.planetScale = e.target.value; recomputePlanetNorm(); updatePlanetStat(); });
+$('planet-beh').addEventListener('change', e => P.planetBeh = e.target.value);
+$('planet-mapping').addEventListener('change', e => { P.planetMapping = e.target.value; updatePlanetStat(); });
+$('planet-map').addEventListener('change', e => { P.planetMap = e.target.value; recomputePlanetU(); });
+$('planet-tint').addEventListener('change', e => { P.planetTint = e.target.checked; if (!P.planetTint && !P.climTint) updateColors(); });
+$('planet-range').addEventListener('input', e => { planet.t = Number(e.target.value); updatePlanetStat(); drawPlanetSpark(); });
+$('planet-play').addEventListener('click', () => {
+  if (!planet.loaded || P.planetBind === 'bound') return;
+  planet.playing = !planet.playing;
+  $('planet-play').classList.toggle('on', planet.playing);
+  $('planet-play').innerHTML = planet.playing ? '&#10073;&#10073;' : '&#9654;';
+});
+let planetDrag = false;
+$('planet-spark').addEventListener('pointerdown', e => { planetDrag = true; $('planet-spark').setPointerCapture(e.pointerId); seekPlanetSpark(e); });
+$('planet-spark').addEventListener('pointermove', e => { if (planetDrag) seekPlanetSpark(e); });
+$('planet-spark').addEventListener('pointerup', () => planetDrag = false);
+fillPlanetSeriesSelect();
+
 $('audio-in').addEventListener('change', e => { if (e.target.files[0]) loadAudioFile(e.target.files[0]); });
 $('load-demo').addEventListener('click', loadDemoLeaf);
 $('recenter').addEventListener('click', recenterView);
@@ -1861,6 +2318,14 @@ function animate(now) {
     tlRange.value = tl.t;
     updateTimelineLabel();
     drawSpark();
+    if (planet.loaded && P.planetBind === 'bound' && frameNo % 4 === 0) { updatePlanetStat(); drawPlanetSpark(); }
+  }
+  if (planet.playing && planet.loaded && planet.norm && P.planetBind === 'deep') {
+    const L = planet.norm.length;
+    planet.t += (L / 20) * dt;          // a whole series crosses in ~20 s whatever its cadence
+    if (planet.t >= L - 1) planet.t = 0;
+    $('planet-range').value = planet.t;
+    if (frameNo % 4 === 0) { updatePlanetStat(); drawPlanetSpark(); }
   }
   updateDisplacement(dt);
   controls.update();
@@ -1899,6 +2364,58 @@ if (location.search.includes('kinectest')) {
     kinConnect();
     setTimeout(() => console.log('KINECTEST: live =', live.on, 'frames =', live.frames, 'points =', n), 5000);
   }, 1000);
+}
+
+// smoke-test hook: ?planettest walks both archives, both binding modes and the export paths
+if (location.search.includes('planettest')) {
+  setTimeout(async () => {
+    const log = [];
+    for (const g of ['co2', 'ch4', 'n2o', 'sf6']) {
+      $('planet-src').value = 'noaa'; fillPlanetSeriesSelect();
+      $('planet-series').value = g;
+      await fetchPlanet();
+      log.push(`NOAA ${g}: ${planet.values.length} samples ${planet.years[0]?.toFixed(2)}–${planet.years[planet.years.length-1]?.toFixed(2)}, ${planet.min}–${planet.max} ${planet.unit}`);
+    }
+    for (const s of Object.keys(OWID_SERIES)) {
+      $('planet-src').value = 'owid'; fillPlanetSeriesSelect();
+      $('planet-series').value = s;
+      await fetchPlanet();
+      log.push(`OWID ${s}: entity=${$('planet-entity').value} ${planet.values.length} samples ${planet.years[0]}–${planet.years[planet.years.length-1]}, ${planet.min}–${planet.max}`);
+    }
+    // land on cumulative CO₂ for the World — the accumulation reading
+    $('planet-src').value = 'owid'; fillPlanetSeriesSelect();
+    $('planet-series').value = 'cumulative-co-emissions';
+    await fetchPlanet();
+    P.planetGain = 1.2; $('planet-gain').value = 1.2;
+    P.planetTint = true; $('planet-tint').checked = true;
+    P.planetMapping = 'spread'; $('planet-mapping').value = 'spread';
+    computeDisplacementFrame();
+    let moved = 0;
+    for (let i = 0; i < n; i++) if (Math.abs(displaced[i*3+1] - basePts[i*3+1]) > 1e-4) moved++;
+    log.push(`deep-time displacement: ${moved}/${n} points moved in y`);
+    const mid = planet.norm.length >> 1, q = planet.norm.length >> 2;
+    for (const sc of ['linear', 'log']) {
+      P.planetScale = sc; recomputePlanetNorm();
+      log.push(`${sc} norm: q=${planet.norm[q].toFixed(5)} mid=${planet.norm[mid].toFixed(5)} (${planet.years[mid]})`);
+    }
+    P.planetScale = 'linear'; recomputePlanetNorm();
+    $('date-start').value = '2024-01-01'; $('date-end').value = '2024-01-31';
+    await fetchClimate();
+    P.planetBind = 'bound'; $('planet-bind').value = 'bound'; buildPlanetBound();
+    log.push(`bound (annual OWID): ${planet.bound?.length} hourly, first=${planet.bound?.[0].toFixed(4)} last=${planet.bound?.[planet.bound.length-1].toFixed(4)}`);
+    computeDisplacementFrame();
+    log.push(`bound displacement active: ${!!planetActive()}`);
+    // NOAA monthly bound to the same window should actually vary hour to hour
+    $('planet-src').value = 'noaa'; fillPlanetSeriesSelect(); $('planet-series').value = 'co2';
+    await fetchPlanet();
+    buildPlanetBound();
+    let bmn = 1, bmx = 0;
+    for (const v of planet.bound) { if (v < bmn) bmn = v; if (v > bmx) bmx = v; }
+    log.push(`bound (monthly NOAA co2): first=${planet.bound[0].toFixed(5)} last=${planet.bound[planet.bound.length-1].toFixed(5)} range=${(bmx-bmn).toExponential(2)} raw=${planetRawNow()?.toFixed(2)} ppm @ ${planetMomentLabel()}`);
+    const svg = buildPlotSVG();
+    log.push(`plot svg ${svg.length} chars, planetary provenance: ${svg.includes('planetary:')}`);
+    console.log('PLANETTEST\n' + log.join('\n'));
+  }, 900);
 }
 
 // smoke-test hook: open with ?autotest to auto-fetch a month of ERA5 and enable the climate layer

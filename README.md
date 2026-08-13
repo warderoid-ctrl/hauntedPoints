@@ -20,6 +20,14 @@ data-troubled object: the unwitting weight of the Stack made visible on nature.
   moisture, solar radiation — and scrub or play through time on the timeline;
   the chosen variable scales displacement (wind vector mode also pushes the
   cloud downwind)
+- **planetary dataset (NOAA / OWID)**: a second, slower layer *underneath* the
+  site — global gas concentrations from NOAA GML (CO₂ 1979–, CH₄ 1983–,
+  N₂O 2001–, SF₆ 1997–) or emissions from Our World in Data (annual, cumulative,
+  per-capita, consumption-based, all-GHG, CH₄, N₂O, temperature anomaly; any of
+  ~250 countries, back to 1750). It has its own gain and composes with ERA5
+  rather than replacing it, and binds two ways:
+  *deep time* scrubs the series on its own timeline in the panel, while
+  *site timeline* resamples it onto the fetched ERA5 hours
 - export the displaced point cloud as `.ply` at any timeline moment, with
   provenance comments (scan, audio file, climate variable, timestamp) baked
   into the header
@@ -57,9 +65,36 @@ versions from github.com/KonstantinosAng/PyKinect2 (see script header).
 3. Load an audio recording of the site; pick a band and raise *audio → points*.
 4. Enter the scan's coordinates (or "use my location"), pick a date range and
    fetch ERA5; choose a variable and raise *climate → points*.
-5. Scrub or play the timeline; shape the haunting with the edge and
+5. In the Planetary panel pick an archive and series, hit *fetch series*, and
+   raise *planet → points* — leave it in deep time to scrub centuries on the
+   panel's own slider, or bind it to the site timeline to sit the leaf inside
+   the atmosphere of the hour you fetched.
+6. Scrub or play the timeline; shape the haunting with the edge and
    displacement panels.
-6. Export the displaced `.ply` at the moment you want to keep.
+7. Export the displaced `.ply` at the moment you want to keep.
+
+## Planetary data routes
+Both archives are fetched straight from the browser — no key, no proxy, CORS
+open on every endpoint used.
+- **NOAA GML** globally averaged marine surface means
+  (`gml.noaa.gov/webdata/ccgg/trends/<gas>/<gas>_mm_gl.txt`, ~50 KB each). All
+  four gases share the columns `year month decimal average average_unc trend
+  trend_unc`; the *reading* control picks the seasonal `average` or the
+  deseasonalised `trend`.
+- **Our World in Data** single-indicator grapher CSVs
+  (`ourworldindata.org/grapher/<slug>.csv`, ~0.8 MB, `Entity,Code,Year,<value>`)
+  rather than the 14 MB combined `owid/co2-data` CSV. Note that the obvious
+  `cumulative-co2-emissions` slug 301-redirects and the redirect response
+  carries no `Access-Control-Allow-Origin`, so a browser fetch fails CORS — the
+  app uses the redirect target `cumulative-co-emissions` directly.
+
+Behaviours are chosen for a curve that mostly only goes up: *weight* presses the
+cloud down and draws it inward (edges sag most), *press* flattens it toward the
+midplane, *drift* disperses it, *swell* pushes along normals. Bound to a short
+site window a cumulative series is almost flat — that is the reading, not a bug,
+and the panel says so. Set *scale* to log to make the early centuries legible.
+Open with `?planettest` to walk both archives, both binding modes and the export
+paths, and print the results to the console.
 
 ## ERA5 data routes
 - **In-app fetch** uses the Open-Meteo archive API, which serves the Copernicus
