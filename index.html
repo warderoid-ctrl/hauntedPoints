@@ -644,7 +644,10 @@ new ResizeObserver(resize).observe(viewport);
 window.addEventListener('resize', resize);
 
 /* ---------- state ---------- */
-const MAX_INPUT_POINTS = 120000;
+const MAX_INPUT_POINTS = 1000000;
+const MAX_EDGE_POINTS = 120000;        // edge cost grows with points x neighbours, so big scans are analysed from a sample
+const MAX_DISPLACE_PER_FRAME = 150000; // bigger scans move in rotating slices, so a frame costs the same at any size
+const PLOT_PREVIEW_POINTS = 200000;    // the live plot reads a sample; the exported SVG uses every point
 const MAX_POINT_PX = 48;               // cap on a rendered point's diameter, in drawing-buffer pixels
 let rawPos = null, rawCol = null;      // sampled, un-normalized, as loaded
 let basePts = new Float32Array(0);     // normalized positions, n*3
@@ -798,8 +801,46 @@ function computeEdgesJS() {
   return scores;
 }
 
+// Runs the edge pass on an even sample, then gives every point the result of a
+// sample sitting close by. Neighbouring points share one normal array, which also
+// saves a few hundred MB on a million-point scan.
+function computeEdgesSampled() {
+  const fullN = n, fullPts = basePts, step = Math.ceil(n / MAX_EDGE_POINTS), m = Math.ceil(n / step);
+  const sub = new Float32Array(m * 3);
+  for (let j = 0; j < m; j++) {
+    const i = j * step;
+    sub[j*3] = basePts[i*3]; sub[j*3+1] = basePts[i*3+1]; sub[j*3+2] = basePts[i*3+2];
+  }
+  let sampled;
+  n = m; basePts = sub;
+  try { sampled = useWasm ? computeEdgesWasm() : computeEdgesJS(); }
+  finally { n = fullN; basePts = fullPts; }
+  const sampledNormals = normals;
+  const G = 128, grid = new Int32Array(G * G * G).fill(-1);
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let j = 0; j < m * 3; j++) { const a = j % 3; if (sub[j] < lo[a]) lo[a] = sub[j]; if (sub[j] > hi[a]) hi[a] = sub[j]; }
+  const cellOf = (v, a) => Math.max(0, Math.min(G - 1, Math.floor((v - lo[a]) / ((hi[a] - lo[a]) || 1) * G)));
+  for (let j = 0; j < m; j++) grid[cellOf(sub[j*3+2], 2) * G * G + cellOf(sub[j*3+1], 1) * G + cellOf(sub[j*3], 0)] = j;
+  const scores = new Float32Array(n), full = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const cx = cellOf(basePts[i*3], 0), cy = cellOf(basePts[i*3+1], 1), cz = cellOf(basePts[i*3+2], 2);
+    let j = grid[cz * G * G + cy * G + cx];
+    for (let r = 1; r <= 3 && j < 0; r++) {
+      for (let z = Math.max(0, cz - r); z <= Math.min(G - 1, cz + r) && j < 0; z++)
+        for (let y = Math.max(0, cy - r); y <= Math.min(G - 1, cy + r) && j < 0; y++)
+          for (let x = Math.max(0, cx - r); x <= Math.min(G - 1, cx + r) && j < 0; x++)
+            j = grid[z * G * G + y * G + x];
+    }
+    if (j < 0) j = Math.floor(i / step);
+    scores[i] = sampled[j];
+    full[i] = sampledNormals[j];
+  }
+  normals = full;
+  return scores;
+}
+
 function computeEdgesNow() {
-  edgeScores = useWasm ? computeEdgesWasm() : computeEdgesJS();
+  edgeScores = n > MAX_EDGE_POINTS ? computeEdgesSampled() : (useWasm ? computeEdgesWasm() : computeEdgesJS());
   let mn = Infinity, mx = -Infinity;
   for (const v of edgeScores) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
   if (mx > mn) for (let i = 0; i < n; i++) edgeScores[i] = (edgeScores[i]-mn)/(mx-mn);
@@ -940,13 +981,12 @@ function parsePLY(buffer) {
 /* ---------- loading / normalizing ---------- */
 function setPointCloud(positions, colors, name) {
   const total = positions.length / 3;
-  let step = 1;
-  if (total > MAX_INPUT_POINTS) step = Math.ceil(total / MAX_INPUT_POINTS);
-  const m = Math.floor((total + step - 1) / step);
+  const m = Math.min(total, MAX_INPUT_POINTS), step = total / m;
   rawPos = new Float32Array(m * 3);
   rawCol = colors ? new Float32Array(m * 3) : null;
   let w = 0;
-  for (let i = 0; i < total; i += step) {
+  for (let q = 0; q < m; q++) {
+    const i = Math.floor(q * step);
     rawPos[w*3] = positions[i*3]; rawPos[w*3+1] = positions[i*3+1]; rawPos[w*3+2] = positions[i*3+2];
     if (rawCol) { rawCol[w*3] = colors[i*3]; rawCol[w*3+1] = colors[i*3+1]; rawCol[w*3+2] = colors[i*3+2]; }
     w++;
@@ -995,6 +1035,7 @@ function rebuildBase() {
 }
 
 function rebuildGeometry() {
+  dispSettled = false;
   if (points) { scene.remove(points); geometry.dispose(); points.material.dispose(); }
   if (pointsB) { scene.remove(pointsB); geometryB.dispose(); }
   geometry = new THREE.BufferGeometry();
@@ -1044,6 +1085,7 @@ function updateColors() {
 }
 
 function recomputeDensityMask() {
+  dispSettled = false;
   visMask = new Uint8Array(n);
   const keep = P.density / 100;
   for (let i = 0; i < n; i++) visMask[i] = (i % 100) < keep * 100 ? 1 : 0;
@@ -1093,6 +1135,7 @@ function setLiveFrame(f32) {
   }
   geometry.setDrawRange(0, n);
   geometryB.setDrawRange(0, n);
+  dispSettled = false;
   live.frames++;
   const now = performance.now();
   if (now - live.lastEdge > 3000) { // refresh edges + mappings a few times per minute
@@ -1809,20 +1852,28 @@ const BEHAVIOR = {
   wind_vector: 'wind', soil_moisture_0_to_7cm: 'droop', shortwave_radiation: 'lift'
 };
 
+let dispSettled = false;   // true once a data-off cloud is back at rest, so idle frames cost nothing
 function updateDisplacement(dt) {
   if (!n) return;
   clockT += dt;
-  computeDisplacementFrame();
+  if (dataMix === 0) {
+    if (!dispSettled) { computeDisplacementFrame(); dispSettled = true; }
+    return;
+  }
+  dispSettled = false;
+  computeDisplacementFrame(Math.ceil(n / MAX_DISPLACE_PER_FRAME));
 }
 
 // the guts of updateDisplacement, minus the clockT advance — lets the frame
 // exporter set tl.t/clockT to arbitrary values and recompute a single still frame
 // planetary frame state — read inside displaceInto so the (already long)
 // argument list doesn't grow again; the slow layer applies to both epochs alike
-const PF = { on: false, norm: null, len: 0, t: 0, spread: false, beh: 'weight', tint: false, climTint: false };
+const PF = { on: false, norm: null, len: 0, t: 0, spread: false, beh: 'weight', tint: false, climTint: false, stride: 1, phase: 0 };
 
-function computeDisplacementFrame() {
+function computeDisplacementFrame(stride = 1) {
   if (!n) return;
+  PF.stride = stride;
+  PF.phase = stride > 1 ? (PF.phase + 1) % stride : 0;
   const audioArr = audio.loaded ? audio[P.audioBand] : null;
   const haveB = climate.normB != null;
   const primaryNorm = (P.epochMode === 'difference' && haveB) ? climate.normD : climate.norm;
@@ -1852,7 +1903,7 @@ function displaceInto(buf, normArr, dirArr, tc, audioArr, beh, len, spread) {
   const A = P.amp * 0.35;
   const climOn = !!normArr;
   const M = dataMix;
-  for (let i = 0; i < n; i++) {
+  for (let i = PF.phase; i < n; i += PF.stride) {
     const bx = basePts[i*3], by = basePts[i*3+1], bz = basePts[i*3+2];
     if (visMask && !visMask[i]) { // hidden points parked far away
       buf[i*3] = 1e6; buf[i*3+1] = 1e6; buf[i*3+2] = 1e6;
@@ -2010,7 +2061,7 @@ function plotFrame(d) {
 }
 
 // Every point the camera can see inside the page frame, projected to page mm.
-function projectView(d) {
+function projectView(d, stride = 1) {
   camera.updateMatrixWorld();
   const f = plotFrame(d), v = new THREE.Vector3();
   const inv = camera.matrixWorldInverse, proj = camera.projectionMatrix, near = camera.near;
@@ -2020,7 +2071,7 @@ function projectView(d) {
   const pageX = ndc => ((ndc * 0.5 + 0.5) * f.vw - f.px) / f.s;
   const pageY = ndc => ((-ndc * 0.5 + 0.5) * f.vh - f.py) / f.s;
   let m = 0, mmax = 1e-9;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += stride) {
     if (visMask && !visMask[i]) continue;
     v.set(displaced[i*3], displaced[i*3+1], displaced[i*3+2]).applyMatrix4(inv);
     const z = -v.z;
@@ -2087,6 +2138,8 @@ function rasterField(view, d, res) {
   return { gray, w, h };
 }
 
+function previewStride() { return Math.max(1, Math.ceil(n / PLOT_PREVIEW_POINTS)); }
+
 function plotMeta() {
   const meta = [`source scan: ${sourceName}`, `style: ${P.plotStyle}`, `data: ${dataOn ? 'on' : 'off'}`];
   if (audio.loaded) meta.push(`audio: ${audio.name} (${P.audioBand})`);
@@ -2098,7 +2151,7 @@ function plotMeta() {
 function buildPlotLayers(opts = {}) {
   if (!n) return null;
   const d = plotDims(), W = d.W, H = d.H, g = P.plotGlyph;
-  const view = projectView(d);
+  const view = projectView(d, opts.final ? 1 : previewStride());
   if (!P.plotStyle.startsWith('h:')) {
     const fld = rasterField(view, d, opts.final ? 480 : opts.moving ? 180 : 320);
     const polys = CS.run(fld.gray, fld.w, fld.h, d, { live: !opts.final, settle: opts.final ? 600 : 0 });
@@ -2556,13 +2609,14 @@ function drawNextThumb(now) {
 }
 function refreshThumbSnap() {
   const d = plotDims();
-  const fld = rasterField(projectView(d), d, 200);
+  const fld = rasterField(projectView(d, previewStride()), d, 200);
   thumbSnap = { gray: fld.gray, w: fld.w, h: fld.h, d };
   thumbStamp++;
   thumbDirty = false;
 }
 
 function downloadPlotSVG() {
+  computeDisplacementFrame();
   const svg = buildPlotSVG();
   if (!svg) return;
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
@@ -2707,6 +2761,7 @@ async function exportFrameSequence() {
 /* ---------- export ---------- */
 function exportPLY() {
   if (!n) return;
+  computeDisplacementFrame();
   const idx = [];
   for (let i = 0; i < n; i++) if (!visMask || visMask[i]) idx.push(i);
   const hasCol = !!baseCol;
