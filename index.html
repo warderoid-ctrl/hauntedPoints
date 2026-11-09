@@ -4,225 +4,458 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Haunted Points</title>
+<meta name="theme-color" content="#17321b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-:root{color-scheme:dark}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;background:#0b0d12;color:#e8e8ea;font-family:system-ui,sans-serif;display:flex;overflow:hidden}
-#side{width:360px;flex-shrink:0;overflow-y:auto;padding:1rem;background:#0f1219;border-right:1px solid #232937}
-#main{flex:1;display:flex;flex-direction:column;min-width:0}
-#viewport{flex:1;position:relative;min-height:0;overflow:hidden}
-#viewport canvas{display:block}
-h1{font-weight:600;font-size:1.15rem;margin:.2rem 0 .1rem}
-.sub{color:#8b93a7;font-size:.78rem;margin:0 0 1rem;line-height:1.45}
-.panel{background:#13161d;border:1px solid #262b39;border-radius:14px;padding:.9rem;margin-bottom:.8rem}
-.pt{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7d89a6;margin-bottom:.7rem;display:flex;align-items:center;justify-content:space-between}
-.row{display:flex;align-items:center;gap:8px;margin-bottom:.55rem;flex-wrap:wrap}
-.row:last-child{margin-bottom:0}
-label{font-size:12px;color:#c5ccd9;min-width:118px;flex-shrink:0}
-input[type=range]{flex:1;min-width:0;accent-color:#5b79ff}
-select,input[type=text],input[type=number],input[type=date]{flex:1;min-width:0;padding:.35rem .5rem;border-radius:8px;border:1px solid #2f3646;background:#181c25;color:#e8e8ea;font:inherit;font-size:12px}
-input[type=file]{flex:1;font-size:11px;color:#8b93a7;min-width:0}
-button{border:1px solid #38425a;border-radius:10px;padding:.42rem .8rem;background:#1f2634;color:#e8e8ea;cursor:pointer;font:inherit;font-size:12px}
-button:hover{background:#2b344a}
-button.on{background:#2263ff;border-color:#4f7bff;color:#fff}
-button.hi{background:#274229;border-color:#3d7a44}
-button.hi:hover{background:#2f5533}
-.val{font-size:11px;color:#7d89a6;min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
-.drop{border:1px dashed #38425a;border-radius:12px;padding:.9rem;text-align:center;color:#a2acbe;cursor:pointer;position:relative;font-size:12px;transition:background .2s}
-.drop:hover{background:rgba(66,89,255,.06)}
-.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
-.stat{font-size:11px;color:#7d89a6;margin-top:.5rem;line-height:1.4;word-break:break-word}
-#timeline{background:#0f1219;border-top:1px solid #232937;padding:.6rem .9rem .7rem;display:flex;flex-direction:column;gap:.35rem}
-#tl-top{display:flex;align-items:center;gap:10px}
-#tl-label{font-size:12px;color:#c5ccd9;font-variant-numeric:tabular-nums;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#spark{width:100%;height:52px;display:block;border-radius:8px;background:#0b0d12;border:1px solid #232937;cursor:crosshair;touch-action:none}
-#planet-spark{width:100%;height:40px;display:block;border-radius:8px;background:#0b0d12;border:1px solid #232937;cursor:crosshair;touch-action:none;margin:.2rem 0 .55rem}
-#planet-range{flex:1;min-width:0;accent-color:#6f9ec9}
-#tl-range{width:100%;accent-color:#c96f4a}
-.badge{font-size:10px;padding:.15rem .45rem;border-radius:99px;border:1px solid #2f3646;color:#8b93a7}
-#hud{position:absolute;left:12px;top:10px;font-size:11px;color:#7d89a6;pointer-events:none;text-shadow:0 1px 3px #000}
+/* Visual language shared with PlotterLens: terraPen shell green chrome, lime accent, paper as the subject. */
+:root {
+  --desk: #17321b;
+  --chrome: rgba(17, 40, 21, 0.95);
+  --chrome-solid: #214a29;
+  --ink: #ffffff;
+  --muted: #a9c4ae;
+  --line: #356a3e;
+  --accent: #e5f15c;
+  --accent-ink: #17321b;
+  --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body {
+  height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none;
+  background: var(--desk); color: var(--ink);
+  font-family: var(--font-ui); font-size: 15px; line-height: 1.4;
+}
+body { display: flex; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible + label, input[type=range]:focus-visible, input[type=text]:focus-visible, input[type=number]:focus-visible, input[type=date]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- stage ---------- */
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+#viewport { flex: 1; position: relative; min-height: 0; overflow: hidden; touch-action: none; }
+#viewport canvas { display: block; }
+#frame { position: absolute; z-index: 2; pointer-events: none; border: 1px solid var(--accent); box-shadow: 0 0 0 200vmax rgba(10, 26, 13, .55); }
+#plot-overlay { position: absolute; inset: 0; background: var(--desk); display: none; z-index: 5; align-items: center; justify-content: center; pointer-events: none; }
+#plot-cv { box-shadow: 0 2px 4px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.45); }
+#hud { position: absolute; z-index: 4; left: 12px; bottom: 10px; max-width: calc(100% - 24px); font-family: var(--font-mono); font-size: 12px; color: var(--muted); background: var(--chrome); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#epoch-labels { position: absolute; left: 0; right: 0; top: 8px; z-index: 6; display: none; justify-content: space-around; pointer-events: none; font-family: var(--font-mono); font-size: 12px; color: var(--ink); text-shadow: 0 1px 3px #000; }
+
+.top { flex: 0 0 auto; padding: 8px 12px; display: flex; align-items: center; gap: 8px; }
+.chip { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; background: var(--chrome); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iconbtn { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; padding: 0; background: var(--chrome); border: 1px solid var(--line); display: grid; place-items: center; }
+.iconbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.navgroup { flex: 0 0 auto; display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--chrome); border: 1px solid var(--line); }
+.navgroup .iconbtn { width: 34px; height: 34px; background: transparent; border-color: transparent; }
+.navgroup .iconbtn[aria-pressed="true"] { background: var(--accent); }
+.databtn { flex: 0 0 auto; height: 40px; padding: 0 14px; border-radius: 999px; background: var(--chrome); border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.databtn::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--muted); }
+.databtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.databtn[aria-pressed="true"]::before { background: var(--accent-ink); border-color: var(--accent-ink); }
+
+/* ---------- timeline ---------- */
+#timeline { background: var(--chrome); border-top: 1px solid var(--line); padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+#tl-top { display: flex; align-items: center; gap: 10px; }
+#tl-label { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#spark { width: 100%; height: 52px; display: block; border-radius: 8px; background: var(--desk); border: 1px solid var(--line); cursor: crosshair; touch-action: none; }
+#planet-spark { width: 100%; height: 40px; display: block; border-radius: 8px; background: var(--desk); border: 1px solid var(--line); cursor: crosshair; touch-action: none; }
+#tl-range { width: 100%; margin: 0; accent-color: var(--accent); }
+#play, #planet-play { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; padding: 0; background: var(--chrome-solid); border: 1px solid var(--line); }
+#play.on, #planet-play.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+#play-speed { flex: 0 0 auto; width: auto; min-height: 40px; padding: 4px 8px; font-size: 14px; }
+
+/* ---------- side panel ---------- */
+.sheet { flex: 0 0 340px; width: 340px; height: 100%; overflow-y: auto; overscroll-behavior: contain; background: var(--chrome); border-left: 1px solid var(--line); padding: 12px 16px 24px; }
+.brand { margin: 0 0 12px; }
+.brand h1 { margin: 0; font-size: 17px; font-weight: 600; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.shutterrow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding-bottom: 14px; }
+.sidebtns { display: flex; gap: 8px; }
+.sidebtns.right { justify-content: flex-end; }
+.roundbtn { width: 46px; height: 46px; border-radius: 50%; padding: 0; display: grid; place-items: center; background: var(--chrome-solid); border: 1px solid var(--line); color: var(--ink); cursor: pointer; }
+.roundbtn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.shutterwrap { display: grid; justify-items: center; gap: 4px; }
+.shutter { width: 74px; height: 74px; border-radius: 50%; border: 4px solid var(--ink); background: transparent; padding: 5px; }
+.shutter span { display: block; width: 100%; height: 100%; border-radius: 50%; background: var(--accent); transition: transform .18s ease, border-radius .18s ease; }
+.shutter[data-state="on"] span { transform: scale(.5); border-radius: 6px; }
+.shutter:active span { transform: scale(.88); }
+.cap { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+.grp { border-top: 1px solid var(--line); }
+.grp > summary { list-style: none; display: flex; align-items: center; gap: 10px; min-height: 52px; cursor: pointer; font-size: 13px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.grp > summary::-webkit-details-marker { display: none; }
+.grp > summary > span:first-child { flex: 1; }
+.grp > summary .sum { font-size: 15px; letter-spacing: 0; text-transform: none; color: var(--ink); max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grp > summary::after { content: ""; width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); margin: -4px 4px 0 2px; transition: transform .15s ease; }
+.grp[open] > summary::after { transform: rotate(-135deg); margin-top: 4px; }
+.grp[open] > summary { color: var(--ink); }
+.grp > .inner { padding-bottom: 14px; }
+.divider { margin: 18px 0 6px; font-size: 13px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+
+.modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 8px; align-items: start; padding: 2px 6px 14px; }
+.modes label { min-width: 0; cursor: pointer; display: grid; justify-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.modes .th { width: 100%; height: auto; aspect-ratio: 1; border-radius: 12px; background: #fff; display: block; box-shadow: 0 0 0 1px var(--line); transition: transform .15s ease, box-shadow .15s ease; }
+.modes input:checked + label { color: var(--ink); }
+.modes input:checked + label .th { box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 4px var(--accent); transform: scale(1.06); }
+.modes input:focus-visible + label .th { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.sec { display: grid; gap: 10px; min-width: 0; }
+.label { margin: 0; font-size: 13px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.tips, .stat { margin: 0; color: var(--muted); font-size: 14px; word-break: break-word; }
+.tips b, .stat b { color: var(--ink); font-weight: 600; }
+.rowhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ctl { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline; border-radius: 10px; }
+.ctl .name { font-weight: 500; font-size: 17px; }
+.ctl output { font-family: var(--font-mono); font-size: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ctl input[type=range] { grid-column: 1 / -1; width: 100%; min-height: 44px; margin: 0; accent-color: var(--accent); }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field > label { font-weight: 500; font-size: 15px; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 22px; }
+.checks label { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; font-size: 16px; }
+.checks input { width: 24px; height: 24px; accent-color: var(--accent); }
+select, input[type=text], input[type=number], input[type=date] {
+  font: inherit; color: var(--ink); background: var(--chrome-solid); border: 1px solid var(--line);
+  border-radius: 8px; min-height: 48px; padding: 8px 10px; width: 100%; font-size: 16px; min-width: 0;
+}
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: end; }
+.shape { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--chrome-solid); min-height: 48px; }
+.shape label { display: grid; place-items: center; cursor: pointer; border-left: 1px solid var(--line); }
+.shape label:first-of-type { border-left: 0; }
+.shape input:checked + label { background: var(--accent); }
+.shape input:checked + label .pg { border-color: var(--accent-ink); }
+.seg4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--chrome-solid); }
+.seg4 label { text-align: center; padding: 14px 2px; font-size: 15px; font-weight: 500; cursor: pointer; border-left: 1px solid var(--line); }
+.seg4 label:first-of-type { border-left: 0; }
+.seg4 input:checked + label { background: var(--accent); color: var(--accent-ink); }
+.seg4 input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -3px; }
+.seg4.seg2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.seg4.seg3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg4.seg5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.seg4.seg5 label { font-size: 13px; padding-inline: 0; }
+.pg { display: block; border: 2px solid var(--muted); border-radius: 2px; }
+.pg.p { width: 14px; height: 20px; } .pg.l { width: 20px; height: 14px; } .pg.sq { width: 17px; height: 17px; }
+.pens { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.pen { display: grid; justify-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.pen small { font-size: 11px; line-height: 1.2; text-align: center; color: var(--ink); }
+.pen input { width: 100%; max-width: 64px; height: 40px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--chrome-solid); cursor: pointer; }
+.pen input::-webkit-color-swatch-wrapper { padding: 3px; } .pen input::-webkit-color-swatch { border: 0; border-radius: 5px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatches button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); padding: 0; cursor: pointer; }
+.swatches button[aria-checked="true"] { box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 4px var(--accent); }
+.swatches label.custom { position: relative; width: 44px; height: 44px; border-radius: 50%; border: 1px dashed var(--muted); display: grid; place-items: center; color: var(--muted); font-size: 22px; overflow: hidden; cursor: pointer; }
+.swatches label.custom input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+.btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { flex: 1 1 130px; min-height: 48px; padding: 8px 14px; font-size: 16px; border-radius: 8px; background: var(--chrome-solid); border: 1px solid var(--line); font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-align: center; cursor: pointer; }
+.btn.small { flex: 0 0 auto; min-height: 40px; padding: 4px 14px; font-size: 15px; }
+.btn.primary-btn { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:disabled { opacity: .45; cursor: default; }
+.drop { border: 1px dashed var(--muted); border-radius: 8px; padding: 14px; text-align: center; color: var(--muted); cursor: pointer; position: relative; font-size: 14px; }
+.drop:hover { background: var(--chrome-solid); }
+.drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.badge { font-family: var(--font-mono); font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); letter-spacing: 0; text-transform: none; }
+
+/* Portrait or narrow: the picture on top, the controls below it. */
+@media (max-width: 760px), (orientation: portrait) and (max-width: 1000px) {
+  body { flex-direction: column; }
+  #main { flex: 0 0 58%; flex: 0 0 58dvh; }
+  .sheet { flex: 1 1 0; width: 100%; height: auto; min-height: 0; border-left: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
+  .chip { display: none; }
+  .top { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before { transition: none !important; } }
 </style>
 <script type="importmap">
 {"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
 </script>
 </head>
 <body>
-<div id="side">
-  <h1>Haunted Points</h1>
-  <p class="sub">A scan, haunted by data. Audio recordings and ERA5 reanalysis displace the points of an organic form &mdash; the unwitting weight of the Stack on nature.</p>
-
-  <div class="panel">
-    <div class="pt"><span>Geometry</span><span class="badge" id="engine-badge">engine</span></div>
-    <div class="drop" id="drop">Drop a <strong>.ply</strong> (ascii or binary) or click<input id="ply-in" type="file" accept=".ply"></div>
-    <div class="row" style="margin-top:.55rem"><button id="load-demo">demo leaf</button><button id="flip-axis" title="cycle which axis is up">rotate up-axis</button></div>
-    <div class="stat" id="geo-stat">No point cloud loaded yet.</div>
-  </div>
-
-  <div class="panel">
-    <div class="pt"><span>Live scan</span><span class="badge">Kinect v2</span></div>
-    <div class="row"><label>bridge url</label><input id="kin-url" type="text" value="ws://localhost:8181"></div>
-    <div class="row"><button id="kin-connect">connect</button><button id="kin-freeze">freeze frame</button></div>
-    <div class="stat" id="kin-stat">Run <b>kinect_bridge.py</b> on this machine (or with --fake to test), then connect. Freeze captures the current frame for full haunting, plotting and export.</div>
-  </div>
-
-  <div class="panel">
-    <div class="pt">View</div>
-    <div class="row"><label>point size</label><input id="psize" type="range" min="0.5" max="6" value="1.8" step="0.1"><span class="val" id="psize-val">1.8</span></div>
-    <div class="row"><label>colour</label><select id="color-mode"><option value="scan">scan colours</option><option value="edge">edge heat</option><option value="bone">bone white</option></select></div>
-    <div class="row"><label>density</label><input id="density" type="range" min="5" max="100" value="100" step="1"><span class="val" id="density-val">100</span></div>
-    <div class="row"><button id="recenter">recenter camera</button></div>
-  </div>
-
-  <div class="panel">
-    <div class="pt">Edge haunting</div>
-    <div class="row"><label>method</label><select id="edge-method"><option value="0">curvature</option><option value="1">normal deviation</option><option value="2">sparse density</option><option value="3">combined</option></select></div>
-    <div class="row"><label>radius</label><input id="radius" type="range" min="0.02" max="0.5" value="0.08" step="0.005"><span class="val" id="radius-val">0.08</span></div>
-    <div class="row"><label>threshold</label><input id="threshold" type="range" min="0" max="100" value="25" step="1"><span class="val" id="threshold-val">25</span></div>
-    <div class="row"><label>falloff</label><input id="falloff" type="range" min="1" max="20" value="4" step="1"><span class="val" id="falloff-val">4</span></div>
-    <div class="row"><label>flat suppress</label><input id="flatsup" type="range" min="0" max="100" value="70" step="1"><span class="val" id="flatsup-val">70</span></div>
-  </div>
-
-  <div class="panel">
-    <div class="pt">Displacement</div>
-    <div class="row"><label>mode</label><select id="disp-mode"><option value="none">none (data only)</option><option value="normal" selected>along normals</option><option value="radial">radial</option><option value="swirl">swirl</option><option value="shatter">shatter</option><option value="bleed">bleed</option></select></div>
-    <div class="row"><label>amplitude</label><input id="amp" type="range" min="0" max="2" value="0.5" step="0.01"><span class="val" id="amp-val">0.50</span></div>
-    <div class="row"><label>manual drive</label><input id="basedrive" type="range" min="0" max="1" value="0.15" step="0.01"><span class="val" id="basedrive-val">0.15</span></div>
-    <div class="row"><label>shimmer</label><input id="shimmer" type="range" min="0" max="1" value="0.25" step="0.01"><span class="val" id="shimmer-val">0.25</span></div>
-  </div>
-
-  <div class="panel">
-    <div class="pt">Audio dataset</div>
-    <div class="row"><input id="audio-in" type="file" accept="audio/*"></div>
-    <div class="row"><label>band</label><select id="audio-band"><option value="env">amplitude</option><option value="low">low (&lt;250 Hz)</option><option value="mid">mid (250&ndash;2k Hz)</option><option value="high">high (&gt;2k Hz)</option></select></div>
-    <div class="row"><label>map along</label><select id="audio-map"><option value="index">point index</option><option value="x">x axis</option><option value="y" selected>y axis</option><option value="z">z axis</option><option value="radial">radial</option></select></div>
-    <div class="row"><label>audio &rarr; points</label><input id="audio-gain" type="range" min="0" max="2" value="0" step="0.01"><span class="val" id="audio-gain-val">0.00</span></div>
-    <div class="stat" id="audio-stat">No audio loaded. The signal sweeps across the cloud along the chosen axis.</div>
-  </div>
-
-  <div class="panel">
-    <div class="pt"><span>Climate dataset</span><span class="badge">ERA5</span></div>
-    <div class="row"><label>latitude</label><input id="lat" type="number" step="0.0001" value="51.5074"></div>
-    <div class="row"><label>longitude</label><input id="lon" type="number" step="0.0001" value="-0.1278"></div>
-    <div class="row"><button id="geoloc" title="use device location">use my location</button></div>
-    <div class="row"><label>from</label><input id="date-start" type="date" value="2024-01-01"></div>
-    <div class="row"><label>to</label><input id="date-end" type="date" value="2024-12-31"></div>
-    <div class="row"><label>epoch B start</label><input id="date-b" type="date"></div>
-    <div class="row"><label>epoch mode</label><select id="epoch-mode" disabled><option value="single">single epoch</option><option value="difference">difference (B − A)</option><option value="split">split view (A | B)</option></select></div>
-    <div class="row"><button id="fetch-climate" class="hi">fetch ERA5 (Open-Meteo)</button></div>
-    <div class="row"><label style="min-width:auto">or load CDS JSON</label><input id="climate-json" type="file" accept=".json"></div>
-    <div class="row"><label>variable</label><select id="clim-var" disabled></select></div>
-    <div class="row"><label>climate &rarr; points</label><input id="clim-gain" type="range" min="0" max="2" value="0" step="0.01"><span class="val" id="clim-gain-val">0.00</span></div>
-    <div class="row"><label>mapping</label><select id="clim-mapping"><option value="spread" selected>history spread across cloud</option><option value="uniform">whole cloud, current hour</option></select></div>
-    <div class="row"><label>spread along</label><select id="clim-map"><option value="index">point index</option><option value="x">x axis</option><option value="y" selected>y axis</option><option value="z">z axis</option><option value="radial">radial</option></select></div>
-    <div class="row"><label>window (hours)</label><input id="clim-window" type="range" min="6" max="720" value="168" step="1"><span class="val" id="clim-window-val">168</span></div>
-    <div class="row"><label>tint points by data</label><input id="clim-tint" type="checkbox" style="flex:0"></div>
-    <div class="stat" id="clim-stat">No climate data yet. Fetch fills the timeline below with hourly ERA5 reanalysis for the scan location.</div>
-  </div>
-
-  <div class="panel">
-    <div class="pt"><span>Planetary layer</span><span class="badge">NOAA / OWID</span></div>
-    <div class="row"><label>archive</label><select id="planet-src">
-      <option value="noaa">NOAA GML &mdash; global gases</option>
-      <option value="owid">Our World in Data &mdash; emissions</option>
-    </select></div>
-    <div class="row"><label>series</label><select id="planet-series"></select></div>
-    <div class="row" id="row-planet-read"><label>reading</label><select id="planet-read">
-      <option value="trend">trend (deseasonalised)</option>
-      <option value="average">monthly average</option>
-    </select></div>
-    <div class="row" id="row-planet-entity" style="display:none"><label>entity</label><select id="planet-entity" disabled><option>fetch a series first</option></select></div>
-    <div class="row"><button id="fetch-planet" class="hi">fetch series</button></div>
-    <div class="row"><label>bind to</label><select id="planet-bind">
-      <option value="deep" selected>deep time (own timeline)</option>
-      <option value="bound">site timeline (resampled)</option>
-    </select></div>
-    <div class="row"><label>scale</label><select id="planet-scale"><option value="linear" selected>linear</option><option value="log">log</option></select></div>
-    <div class="row"><label>behaviour</label><select id="planet-beh">
-      <option value="weight" selected>weight (press + compact)</option>
-      <option value="swell">swell along normals</option>
-      <option value="press">press to midplane</option>
-      <option value="drift">drift apart</option>
-    </select></div>
-    <div class="row"><label>planet &rarr; points</label><input id="planet-gain" type="range" min="0" max="2" value="0" step="0.01"><span class="val" id="planet-gain-val">0.00</span></div>
-    <div class="row"><label>mapping</label><select id="planet-mapping"><option value="uniform" selected>whole cloud, one moment</option><option value="spread">history spread across cloud</option></select></div>
-    <div class="row"><label>spread along</label><select id="planet-map"><option value="index">point index</option><option value="x">x axis</option><option value="y">y axis</option><option value="z" selected>z axis</option><option value="radial">radial</option></select></div>
-    <div class="row"><label>history window</label><input id="planet-window" type="range" min="1" max="400" value="60" step="1"><span class="val" id="planet-window-val">60</span></div>
-    <div class="row"><label>tint points by data</label><input id="planet-tint" type="checkbox" style="flex:0"></div>
-    <canvas id="planet-spark" height="40"></canvas>
-    <div class="row"><button id="planet-play">&#9654;</button><input id="planet-range" type="range" min="0" max="0" value="0" step="0.25" disabled></div>
-    <div class="stat" id="planet-stat">No planetary data yet. NOAA gives the gas itself (CO&#8322; 1979&ndash;, CH&#8324; 1983&ndash;, N&#8322;O 2001&ndash;, SF&#8326; 1997&ndash;); OWID gives what was emitted, per country, back to 1750. In deep time the series scrubs on its own slider below; bound to the site timeline it is resampled onto the ERA5 hours.</div>
-  </div>
-
-  <div class="panel">
-    <div class="pt">Plotter</div>
-    <div class="row"><label>style</label><select id="plot-style">
-      <option value="points">points (stipple)</option>
-      <option value="contour">contour curves</option>
-      <option value="rings">radial rings</option>
-      <option value="flow">flow field</option>
-      <option value="rd">reaction–diffusion</option>
-      <option value="hairs">displacement hairs</option>
-      <option value="arrows">arrows</option>
-      <option value="circles">circles</option>
-      <option value="suns">suns</option>
-      <option value="spirals">spirals</option>
-      <option value="ascii">ascii characters</option>
-    </select></div>
-    <div class="row"><label>detail</label><input id="plot-detail" type="range" min="1" max="100" value="40" step="1"><span class="val" id="plot-detail-val">40</span></div>
-    <div class="row"><label>glyph size</label><input id="plot-glyph" type="range" min="0.5" max="8" value="2" step="0.1"><span class="val" id="plot-glyph-val">2.0</span></div>
-    <div class="row"><label>contour axis</label><select id="plot-axis"><option value="0" selected>x</option><option value="1">y</option><option value="2">z</option></select></div>
-    <div class="row"><label>page w (mm)</label><input id="page-w" type="range" min="100" max="420" value="297" step="1"><span class="val" id="page-w-val">297</span></div>
-    <div class="row"><label>page h (mm)</label><input id="page-h" type="range" min="100" max="420" value="210" step="1"><span class="val" id="page-h-val">210</span></div>
-    <div class="row"><label>pen (mm)</label><input id="pen-w" type="range" min="0.05" max="1" value="0.3" step="0.01"><span class="val" id="pen-w-val">0.30</span></div>
-    <div class="row"><label>pens / layers</label><select id="plot-pens"><option value="1">1 pen</option><option value="2">2 pens</option><option value="3" selected>3 pens</option><option value="4">4 pens</option></select></div>
-    <div class="row"><label>layer by</label><select id="plot-layerby"><option value="data" selected>data value</option><option value="planet">planetary value</option><option value="scan">scan colour</option><option value="edge">edge score</option><option value="depth">depth</option></select></div>
-    <div class="row"><button id="plot-preview-btn">live plot view</button><button id="plot-svg" class="hi">download SVG</button></div>
-    <div class="stat">Plots the haunted cloud exactly as seen from the current camera. Contours and rings join points into curves; the other styles draw a mark per point sized by how far data has displaced it.</div>
-  </div>
-
-  <div class="panel">
-    <div class="pt"><span>Frame sequence</span><span class="badge">stop-motion</span></div>
-    <div class="row"><label>frames</label><input id="seq-frames" type="number" min="2" max="600" value="60" step="1"><span class="val" id="seq-frames-val">60</span></div>
-    <div class="row"><label>preview fps</label><select id="seq-fps">
-      <option value="6">6 fps</option><option value="12" selected>12 fps</option>
-      <option value="24">24 fps</option><option value="30">30 fps</option>
-    </select><span class="val" id="seq-duration">5.0s</span></div>
-    <div class="row"><label>window start (hr)</label><input id="seq-start" type="number" step="1" value="0" disabled><button id="seq-start-mark" title="use current timeline position">use playhead</button></div>
-    <div class="row"><label>window end (hr)</label><input id="seq-end" type="number" step="1" value="0" disabled><button id="seq-end-mark" title="use current timeline position">use playhead</button></div>
-    <div class="row"><button id="export-seq" class="hi">export frame sequence (.zip)</button></div>
-    <div class="stat" id="seq-stat">Renders each frame of the plotter view across the window above (scrub the timeline or use the buttons to set start/end), then bundles them as numbered SVGs in one .zip for external animation. Without climate loaded, frames just vary with shimmer/audio motion at a fixed moment.</div>
-  </div>
-
-  <div class="panel">
-    <div class="pt">Export</div>
-    <div class="row"><button id="export-ply" class="hi">export displaced .ply</button></div>
-    <div class="stat">Saves the haunted cloud exactly as displaced at the current timeline moment (with scan colours if present).</div>
-  </div>
-</div>
-
 <div id="main">
-  <div id="viewport">
-    <div id="hud">drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div>
-    <div id="epoch-labels" style="position:absolute;left:0;right:0;bottom:8px;display:none;justify-content:space-around;pointer-events:none;font-size:11px;color:#aeb6c8;text-shadow:0 1px 3px #000"><span id="lab-a"></span><span id="lab-b"></span></div>
-    <div id="plot-overlay" style="position:absolute;inset:0;background:#f5f4f0;display:none;z-index:5;align-items:center;justify-content:center;pointer-events:none">
-      <canvas id="plot-cv" style="box-shadow:0 6px 30px rgba(0,0,0,.35);background:#fff"></canvas>
-      <button id="plot-close" style="position:absolute;top:12px;right:12px;pointer-events:auto">close plot view</button>
+  <div class="top" id="top">
+    <div class="chip" id="readout">Loading…</div>
+    <div class="navgroup" role="group" aria-label="Camera mode">
+      <button class="iconbtn" id="nav-orbit" type="button" title="Orbit (1)" aria-label="Orbit the camera around a point" aria-pressed="true">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><ellipse cx="12" cy="12" rx="9.5" ry="4.5"/></svg>
+      </button>
+      <button class="iconbtn" id="nav-fly" type="button" title="Fly (2) — WASD, Q/E up and down" aria-label="Fly through the scene" aria-pressed="false">
+        <svg class="i" viewBox="0 0 24 24"><path d="M21 3 10 14"/><path d="M21 3l-7 18-4-7-7-4z"/></svg>
+      </button>
+      <button class="iconbtn" id="nav-walk" type="button" title="Walk (3) — WASD at a level height" aria-label="Walk through the scene at a level height" aria-pressed="false">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="13" cy="4.5" r="1.8"/><path d="M9 21l2.5-6-2-3 1.5-4.5 3.5 2 2.5 2M11.5 15l3.5 2 1 4M10.5 8 7 10.5V14"/></svg>
+      </button>
     </div>
+    <button class="databtn" id="data-toggle" type="button" title="Show the scan with or without its data (H)" aria-pressed="true">Data on</button>
+    <button class="iconbtn" id="btn-frame" type="button" title="Show the page frame: exactly what will be plotted" aria-label="Show the page frame" aria-pressed="true">
+      <svg class="i" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+    <button class="iconbtn" id="btn-rotate" type="button" title="Paper shape: portrait, landscape or square" aria-label="Change paper shape">
+      <svg class="i" viewBox="0 0 24 24"><rect x="3" y="8" width="11" height="13" rx="1"/><path d="M13 3h2a5 5 0 0 1 5 5v3"/><path d="M17.5 9l2.5 2.5L22.5 9"/></svg>
+    </button>
+  </div>
+  <div id="viewport">
+    <div id="frame" aria-hidden="true"></div>
+    <div id="hud"></div>
+    <div id="epoch-labels"><span id="lab-a"></span><span id="lab-b"></span></div>
+    <div id="plot-overlay"><canvas id="plot-cv"></canvas></div>
   </div>
   <div id="timeline">
     <div id="tl-top">
-      <button id="play">&#9654;</button>
-      <select id="play-speed" style="flex:0 0 auto;width:auto">
+      <button id="play" type="button" aria-label="Play timeline">&#9654;</button>
+      <select id="play-speed" aria-label="Playback speed">
         <option value="2">2 h/s</option><option value="12" selected>12 h/s</option>
         <option value="48">48 h/s</option><option value="240">240 h/s</option>
       </select>
       <span id="tl-label">timeline empty &mdash; fetch climate data to scrub through time</span>
     </div>
     <canvas id="spark" height="52"></canvas>
-    <input id="tl-range" type="range" min="0" max="0" value="0" step="0.25" disabled>
+    <input id="tl-range" type="range" min="0" max="0" value="0" step="0.25" disabled aria-label="Timeline position">
   </div>
 </div>
+
+<section class="sheet" id="sheet" aria-label="Controls">
+  <div class="brand"><h1>Haunted Points</h1><p>A scan, haunted by data.</p></div>
+  <div class="shutterrow">
+    <div class="sidebtns">
+      <button class="roundbtn" id="pick-ply" type="button" title="Load a .ply point cloud" aria-label="Load a point cloud">
+        <svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="10" r=".6"/><circle cx="12" cy="13" r=".6"/><circle cx="16" cy="9" r=".6"/><circle cx="9" cy="15" r=".6"/><circle cx="16" cy="15" r=".6"/></svg>
+      </button>
+      <button class="roundbtn" id="recenter" type="button" title="Recenter camera" aria-label="Recenter camera">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg>
+      </button>
+    </div>
+    <div class="shutterwrap">
+      <button class="shutter" id="plot-preview-btn" type="button" data-state="off" title="Switch between the scan and the plot (P)" aria-label="Show the plot"><span></span></button>
+      <div class="cap" id="shutter-cap">View plot</div>
+    </div>
+    <div class="sidebtns right">
+      <button class="roundbtn primary" id="plot-svg" type="button" title="Download SVG" aria-label="Download SVG">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <details class="grp" id="styleSec" open><summary><span>Style</span><span class="sum" id="styleSum"></span></summary><div class="sec inner">
+    <div class="modes" id="modes" role="radiogroup" aria-label="Plot style"></div>
+    <p class="label">Point styles</p>
+    <div class="seg4 seg3" id="modes-haunted" role="radiogroup" aria-label="Point styles"></div>
+    <p class="tips">The picture styles above are PlotterLens's own, drawn from what the camera sees. Point styles plot the points themselves and how far the data moved them.</p>
+  </div></details>
+
+  <details class="grp"><summary><span>Settings</span><span class="sum" id="mainSum"></span></summary><div class="sec inner">
+    <div class="sec" id="lens-settings">
+      <div class="rowhead"><span class="tips">Sliders for this style</span><button class="btn small" id="btn-reset" type="button">Reset sliders</button></div>
+      <div class="field"><label for="tone-src">Tone comes from</label><select id="tone-src">
+        <option value="seen" selected>what you see (point colours)</option>
+        <option value="depth">depth (near is dark)</option>
+        <option value="edge">edge strength</option>
+        <option value="data">data displacement</option>
+        <option value="density">point density</option>
+      </select></div>
+      <div class="sec" id="techRow" hidden><div class="checks"><label><input type="checkbox" id="techBold"> Heavy outlines</label><label><input type="checkbox" id="techFrame"> Border frame</label></div></div>
+      <div class="sec" id="duoRow" hidden><p class="tips">Pen 1 is the dark ink for the shadows, pen 2 the light ink for highlights and midtones. Pick the inks under Colours.</p></div>
+      <div class="sec" id="snowRow" hidden>
+        <div class="seg4 seg2" role="radiogroup" aria-label="Snowflakes"><input class="sr" type="radio" name="snowMany" id="sm-one" value="one"><label for="sm-one">One flake</label><input class="sr" type="radio" name="snowMany" id="sm-many" value="many"><label for="sm-many">Flurry</label></div>
+        <div class="seg4 seg2" role="radiogroup" aria-label="Snowflake drawing"><input class="sr" type="radio" name="snowLook" id="sl-profile" value="profile"><label for="sl-profile">Profile</label><input class="sr" type="radio" name="snowLook" id="sl-lines" value="lines"><label for="sl-lines">Lines</label></div>
+      </div>
+      <div class="sec" id="etchRow" hidden><div class="checks"><label><input type="checkbox" id="etchOutline"> Broken outlines</label><label><input type="checkbox" id="etchCurls"> Curls and flicks</label><label><input type="checkbox" id="etchVig"> Fade to the edges</label></div></div>
+      <div class="sec" id="engRow" hidden>
+        <p class="label">Hatch</p>
+        <div class="seg4 seg3" role="radiogroup" aria-label="Engrave hatch"><input class="sr" type="radio" name="engHatch" id="eh-flow" value="flow"><label for="eh-flow">Flow</label><input class="sr" type="radio" name="engHatch" id="eh-rigid" value="rigid"><label for="eh-rigid">Rigid</label><input class="sr" type="radio" name="engHatch" id="eh-facets" value="facets"><label for="eh-facets">Facets</label></div>
+        <p class="label">Lines</p>
+        <div class="seg4 seg3" role="radiogroup" aria-label="Engrave lines"><input class="sr" type="radio" name="engLines" id="el-none" value="none"><label for="el-none">None</label><input class="sr" type="radio" name="engLines" id="el-outline" value="outline"><label for="el-outline">Outline</label><input class="sr" type="radio" name="engLines" id="el-contours" value="contours"><label for="el-contours">Contours</label></div>
+        <div class="checks"><label><input type="checkbox" id="engDots"> Dots in the light tones</label></div>
+      </div>
+      <div class="sec" id="blobFillRow" hidden>
+        <div class="seg4 seg3" role="radiogroup" aria-label="Blob fill"><input class="sr" type="radio" name="blobFill" id="bf-hatch" value="hatch"><label for="bf-hatch">Hatch</label><input class="sr" type="radio" name="blobFill" id="bf-cross" value="cross"><label for="bf-cross">Cross</label><input class="sr" type="radio" name="blobFill" id="bf-contours" value="contours"><label for="bf-contours">Contours</label><input class="sr" type="radio" name="blobFill" id="bf-spiral" value="spiral"><label for="bf-spiral">Spiral</label><input class="sr" type="radio" name="blobFill" id="bf-zig" value="zig"><label for="bf-zig">Zigzag</label></div>
+      </div>
+      <div class="sec" id="cellFillRow" hidden>
+        <p class="label">Cell fill</p>
+        <div class="seg4" role="radiogroup" aria-label="Cell fill pattern"><input class="sr" type="radio" name="cellFill" id="cf-none" value="none"><label for="cf-none">None</label><input class="sr" type="radio" name="cellFill" id="cf-hatch" value="hatch"><label for="cf-hatch">Hatch</label><input class="sr" type="radio" name="cellFill" id="cf-cross" value="cross"><label for="cf-cross">Cross</label><input class="sr" type="radio" name="cellFill" id="cf-grid" value="grid"><label for="cf-grid">Grid</label><input class="sr" type="radio" name="cellFill" id="cf-iso" value="iso"><label for="cf-iso">Iso</label><input class="sr" type="radio" name="cellFill" id="cf-zig" value="zig"><label for="cf-zig">Zigzag</label><input class="sr" type="radio" name="cellFill" id="cf-stipple" value="stipple"><label for="cf-stipple">Stipple</label></div>
+      </div>
+      <div class="sec" id="sliders"></div>
+      <div class="checks"><label><input type="checkbox" id="lens-auto"> Auto levels</label><label><input type="checkbox" id="lens-invert"> Invert</label><label><input type="checkbox" id="camUnder"> Show the scan under the lines</label></div>
+      <div class="sec" id="camSliders"></div>
+    </div>
+    <div class="sec" id="haunted-settings" hidden>
+      <div class="ctl"><label class="name" for="plot-detail">Detail</label><output id="plot-detail-val">40</output><input id="plot-detail" type="range" min="1" max="100" value="40" step="1"></div>
+      <div class="ctl"><label class="name" for="plot-glyph">Glyph size</label><output id="plot-glyph-val">2.0</output><input id="plot-glyph" type="range" min="0.5" max="8" value="2" step="0.1"></div>
+      <div class="field"><label for="plot-axis">Contour axis</label><select id="plot-axis"><option value="0" selected>x</option><option value="1">y</option><option value="2">z</option></select></div>
+      <div class="two">
+        <div class="field"><label for="plot-pens">Pens</label><select id="plot-pens"><option value="1">1 pen</option><option value="2">2 pens</option><option value="3" selected>3 pens</option><option value="4">4 pens</option></select></div>
+        <div class="field"><label for="plot-layerby">Layer by</label><select id="plot-layerby"><option value="data" selected>data value</option><option value="planet">planetary value</option><option value="scan">scan colour</option><option value="edge">edge score</option><option value="depth">depth</option></select></div>
+      </div>
+    </div>
+  </div></details>
+
+  <details class="grp" id="lens-bg"><summary><span>Background</span><span class="sum" id="cullSum"></span></summary><div class="sec inner">
+    <div class="seg4 seg5" role="radiogroup" aria-label="Background culling"><input class="sr" type="radio" name="cull" id="cu-off" value="off"><label for="cu-off">Off</label><input class="sr" type="radio" name="cull" id="cu-light" value="light"><label for="cu-light">Light</label><input class="sr" type="radio" name="cull" id="cu-dark" value="dark"><label for="cu-dark">Dark</label><input class="sr" type="radio" name="cull" id="cu-flat" value="flat"><label for="cu-flat">Flat</label><input class="sr" type="radio" name="cull" id="cu-radial" value="radial"><label for="cu-radial">Radial</label></div>
+    <div class="sec" id="cullCtl" hidden><div class="sec" id="cullSliders"></div><p class="tips" id="cullTip"></p></div>
+  </div></details>
+
+  <details class="grp"><summary><span>Colours</span><span class="sum" id="colourSum"></span></summary><div class="sec inner">
+    <div class="seg4 seg5" role="radiogroup" aria-label="How the pens are coloured"><input class="sr" type="radio" name="colourMode" id="cm-none" value="none"><label for="cm-none">None</label><input class="sr" type="radio" name="colourMode" id="cm-layers" value="layers"><label for="cm-layers">Layers</label><input class="sr" type="radio" name="colourMode" id="cm-linear" value="linear"><label for="cm-linear">Linear</label><input class="sr" type="radio" name="colourMode" id="cm-radial" value="radial"><label for="cm-radial">Radial</label><input class="sr" type="radio" name="colourMode" id="cm-mix" value="mix"><label for="cm-mix">Multi</label></div>
+    <p class="tips" id="colourTip"></p>
+    <div class="pens">
+      <label class="pen"><input type="color" id="pen0" aria-label="Pen 1 colour"><span>Pen 1</span><small id="pname0"></small></label>
+      <label class="pen"><input type="color" id="pen1" aria-label="Pen 2 colour"><span>Pen 2</span><small id="pname1"></small></label>
+      <label class="pen"><input type="color" id="pen2" aria-label="Pen 3 colour"><span>Pen 3</span><small id="pname2"></small></label>
+      <label class="pen"><input type="color" id="pen3" aria-label="Pen 4 colour"><span>Pen 4</span><small id="pname3"></small></label>
+    </div>
+    <div class="sec" id="bandCtl" hidden>
+      <div class="sec" id="bandSliders"></div>
+      <div class="checks" id="bandRevRow"><label><input type="checkbox" id="bandRev"> Reverse order</label></div>
+      <div class="btnrow" id="mixRow"><button class="btn small" id="btnShuffle" type="button">Shuffle colours</button></div>
+    </div>
+    <div class="btnrow"><button class="btn small" id="btnResetColours" type="button">Reset colours</button></div>
+  </div></details>
+
+  <details class="grp" id="lens-focus"><summary><span>Focal point</span><span class="sum" id="focusSum"></span></summary><div class="sec inner">
+    <p class="tips" id="focusTip">In plot view, long-press the paper to place a point the style reacts to.</p>
+    <div class="sec" id="focusCtl" hidden>
+      <div class="seg4 seg2" role="radiogroup" aria-label="Focal point behaviour"><input class="sr" type="radio" name="repel" id="fp-attract" value="0"><label for="fp-attract">Attract</label><input class="sr" type="radio" name="repel" id="fp-repel" value="1"><label for="fp-repel">Repel</label></div>
+      <div class="sec" id="focusSliders"></div>
+      <div class="ctl"><label class="name" for="pull">Pull</label><output id="o-pull"></output><input type="range" id="pull" min="0" max="200" step="5"></div>
+      <div class="checks"><label><input type="checkbox" id="showTarget"> Show target</label></div>
+      <div class="btnrow"><button class="btn" id="btnFocusOff" type="button">Remove point</button></div>
+    </div>
+  </div></details>
+
+  <details class="grp"><summary><span>Paper</span><span class="sum" id="paperSum"></span></summary><div class="sec inner">
+    <div class="two">
+      <select id="paperSize" aria-label="Paper size"></select>
+      <div class="shape" role="radiogroup" aria-label="Paper shape">
+        <input class="sr" type="radio" name="shape" id="sh-p" value="p"><label for="sh-p" title="Portrait"><span class="pg p"></span></label>
+        <input class="sr" type="radio" name="shape" id="sh-l" value="l"><label for="sh-l" title="Landscape"><span class="pg l"></span></label>
+        <input class="sr" type="radio" name="shape" id="sh-sq" value="sq"><label for="sh-sq" title="Square"><span class="pg sq"></span></label>
+      </div>
+    </div>
+    <div class="sec" id="customPage" hidden>
+      <div class="ctl"><label class="name" for="page-w">Width (mm)</label><output id="page-w-val">297</output><input id="page-w" type="range" min="100" max="1200" value="297" step="1"></div>
+      <div class="ctl"><label class="name" for="page-h">Height (mm)</label><output id="page-h-val">210</output><input id="page-h" type="range" min="100" max="1200" value="210" step="1"></div>
+    </div>
+    <p class="tips" id="paperInfo"></p>
+    <div class="ctl"><label class="name" for="margin">Margin</label><output id="o-margin"></output><input type="range" id="margin" min="0" max="160" step="1"></div>
+    <p class="label">Paper colour</p>
+    <div class="swatches" id="paperSwatches" role="radiogroup" aria-label="Paper colour"></div>
+    <div class="checks"><label><input type="checkbox" id="paperSvg"> Include the paper colour in the SVG</label></div>
+  </div></details>
+
+  <details class="grp"><summary><span>Export</span></summary><div class="sec inner">
+    <div class="btnrow"><button class="btn primary-btn" id="plot-svg-2" type="button">Download SVG</button><button class="btn" id="export-ply" type="button">Displaced .ply</button></div>
+    <p class="tips">The SVG is exactly what sits inside the page frame. The .ply saves the haunted cloud at the current timeline moment.</p>
+    <p class="label">Frame sequence</p>
+    <div class="ctl"><label class="name" for="seq-frames">Frames</label><output id="seq-frames-val">60</output><input id="seq-frames" type="number" min="2" max="600" value="60" step="1" style="grid-column:1/-1"></div>
+    <div class="field"><label for="seq-fps">Preview rate <span id="seq-duration" class="badge">5.0s</span></label><select id="seq-fps"><option value="6">6 fps</option><option value="12" selected>12 fps</option><option value="24">24 fps</option><option value="30">30 fps</option></select></div>
+    <div class="two">
+      <div class="field"><label for="seq-start">Start (hr)</label><input id="seq-start" type="number" step="1" value="0" disabled><button class="btn small" id="seq-start-mark" type="button">Use playhead</button></div>
+      <div class="field"><label for="seq-end">End (hr)</label><input id="seq-end" type="number" step="1" value="0" disabled><button class="btn small" id="seq-end-mark" type="button">Use playhead</button></div>
+    </div>
+    <div class="btnrow"><button class="btn" id="export-seq" type="button">Export frames (.zip)</button></div>
+    <p class="tips" id="seq-stat">Renders each frame of the plot across the window above, then bundles them as numbered SVGs in one .zip for animation.</p>
+  </div></details>
+
+  <p class="divider">Haunting</p>
+
+  <details class="grp"><summary><span>Scan</span><span class="badge" id="engine-badge">engine</span></summary><div class="sec inner">
+    <div class="drop" id="drop">Drop a <strong>.ply</strong> anywhere, or click here<input id="ply-in" type="file" accept=".ply"></div>
+    <div class="btnrow"><button class="btn" id="load-demo" type="button">Demo leaf</button><button class="btn" id="flip-axis" type="button" title="Cycle which axis is up">Rotate up-axis</button></div>
+    <p class="stat" id="geo-stat">No point cloud loaded yet.</p>
+    <p class="label">Live scan <span class="badge">Kinect v2</span></p>
+    <div class="field"><label for="kin-url">Bridge URL</label><input id="kin-url" type="text" value="ws://localhost:8181"></div>
+    <div class="btnrow"><button class="btn" id="kin-connect" type="button">Connect</button><button class="btn" id="kin-freeze" type="button">Freeze frame</button></div>
+    <p class="stat" id="kin-stat">Run <b>kinect_bridge.py</b> on this machine (or with --fake to test), then connect. Freeze captures the current frame for full haunting, plotting and export.</p>
+  </div></details>
+
+  <details class="grp"><summary><span>Camera</span><span class="sum" id="navSum"></span></summary><div class="sec inner">
+    <p class="tips"><b>W A S D</b> move, <b>Q / E</b> down and up, drag to look, right-drag to slide, scroll to go forward. Hold <b>Shift</b> to go faster. <b>Esc</b> goes back to orbit.</p>
+    <div class="ctl"><label class="name" for="nav-speed">Move speed</label><output id="nav-speed-val">0.40</output><input id="nav-speed" type="range" min="0.02" max="2" value="0.4" step="0.01"></div>
+    <div class="ctl"><label class="name" for="nav-fov">Lens (field of view)</label><output id="nav-fov-val">50°</output><input id="nav-fov" type="range" min="15" max="110" value="50" step="1"></div>
+  </div></details>
+
+  <details class="grp"><summary><span>Points</span></summary><div class="sec inner">
+    <div class="ctl"><label class="name" for="psize">Point size</label><output id="psize-val">1.8</output><input id="psize" type="range" min="0.5" max="6" value="1.8" step="0.1"></div>
+    <div class="ctl"><label class="name" for="density">Density</label><output id="density-val">100</output><input id="density" type="range" min="5" max="100" value="100" step="1"></div>
+    <div class="field"><label for="color-mode">Colour</label><select id="color-mode"><option value="scan">scan colours</option><option value="edge">edge heat</option><option value="bone">bone white</option></select></div>
+    <div class="checks"><label><input type="checkbox" id="scan-on-paper"> Show the scan on the paper colour</label></div>
+  </div></details>
+
+  <details class="grp"><summary><span>Edge haunting</span></summary><div class="sec inner">
+    <div class="field"><label for="edge-method">Method</label><select id="edge-method"><option value="0">curvature</option><option value="1">normal deviation</option><option value="2">sparse density</option><option value="3">combined</option></select></div>
+    <div class="ctl"><label class="name" for="radius">Radius</label><output id="radius-val">0.08</output><input id="radius" type="range" min="0.02" max="0.5" value="0.08" step="0.005"></div>
+    <div class="ctl"><label class="name" for="threshold">Threshold</label><output id="threshold-val">25</output><input id="threshold" type="range" min="0" max="100" value="25" step="1"></div>
+    <div class="ctl"><label class="name" for="falloff">Falloff</label><output id="falloff-val">4</output><input id="falloff" type="range" min="1" max="20" value="4" step="1"></div>
+    <div class="ctl"><label class="name" for="flatsup">Flat suppress</label><output id="flatsup-val">70</output><input id="flatsup" type="range" min="0" max="100" value="70" step="1"></div>
+  </div></details>
+
+  <details class="grp"><summary><span>Displacement</span></summary><div class="sec inner">
+    <div class="field"><label for="disp-mode">Mode</label><select id="disp-mode"><option value="none">none (data only)</option><option value="normal" selected>along normals</option><option value="radial">radial</option><option value="swirl">swirl</option><option value="shatter">shatter</option><option value="bleed">bleed</option></select></div>
+    <div class="ctl"><label class="name" for="amp">Amplitude</label><output id="amp-val">0.50</output><input id="amp" type="range" min="0" max="2" value="0.5" step="0.01"></div>
+    <div class="ctl"><label class="name" for="basedrive">Manual drive</label><output id="basedrive-val">0.15</output><input id="basedrive" type="range" min="0" max="1" value="0.15" step="0.01"></div>
+    <div class="ctl"><label class="name" for="shimmer">Shimmer</label><output id="shimmer-val">0.25</output><input id="shimmer" type="range" min="0" max="1" value="0.25" step="0.01"></div>
+  </div></details>
+
+  <details class="grp"><summary><span>Audio</span></summary><div class="sec inner">
+    <label class="btn"><input id="audio-in" class="sr" type="file" accept="audio/*">Choose audio file</label>
+    <div class="two">
+      <div class="field"><label for="audio-band">Band</label><select id="audio-band"><option value="env">amplitude</option><option value="low">low (&lt;250 Hz)</option><option value="mid">mid (250&ndash;2k Hz)</option><option value="high">high (&gt;2k Hz)</option></select></div>
+      <div class="field"><label for="audio-map">Map along</label><select id="audio-map"><option value="index">point index</option><option value="x">x axis</option><option value="y" selected>y axis</option><option value="z">z axis</option><option value="radial">radial</option></select></div>
+    </div>
+    <div class="ctl"><label class="name" for="audio-gain">Audio &rarr; points</label><output id="audio-gain-val">0.00</output><input id="audio-gain" type="range" min="0" max="2" value="0" step="0.01"></div>
+    <p class="stat" id="audio-stat">No audio loaded. The signal sweeps across the cloud along the chosen axis.</p>
+  </div></details>
+
+  <details class="grp"><summary><span>Climate</span><span class="badge">ERA5</span></summary><div class="sec inner">
+    <div class="two">
+      <div class="field"><label for="lat">Latitude</label><input id="lat" type="number" step="0.0001" value="51.5074"></div>
+      <div class="field"><label for="lon">Longitude</label><input id="lon" type="number" step="0.0001" value="-0.1278"></div>
+    </div>
+    <div class="btnrow"><button class="btn" id="geoloc" type="button" title="Use device location">Use my location</button></div>
+    <div class="two">
+      <div class="field"><label for="date-start">From</label><input id="date-start" type="date" value="2024-01-01"></div>
+      <div class="field"><label for="date-end">To</label><input id="date-end" type="date" value="2024-12-31"></div>
+    </div>
+    <div class="field"><label for="date-b">Epoch B start</label><input id="date-b" type="date"></div>
+    <div class="field"><label for="epoch-mode">Epoch mode</label><select id="epoch-mode" disabled><option value="single">single epoch</option><option value="difference">difference (B − A)</option><option value="split">split view (A | B)</option></select></div>
+    <div class="btnrow"><button class="btn primary-btn" id="fetch-climate" type="button">Fetch ERA5 (Open-Meteo)</button><label class="btn"><input id="climate-json" class="sr" type="file" accept=".json">Load CDS JSON</label></div>
+    <div class="field"><label for="clim-var">Variable</label><select id="clim-var" disabled></select></div>
+    <div class="ctl"><label class="name" for="clim-gain">Climate &rarr; points</label><output id="clim-gain-val">0.00</output><input id="clim-gain" type="range" min="0" max="2" value="0" step="0.01"></div>
+    <div class="field"><label for="clim-mapping">Mapping</label><select id="clim-mapping"><option value="spread" selected>history spread across cloud</option><option value="uniform">whole cloud, current hour</option></select></div>
+    <div class="field"><label for="clim-map">Spread along</label><select id="clim-map"><option value="index">point index</option><option value="x">x axis</option><option value="y" selected>y axis</option><option value="z">z axis</option><option value="radial">radial</option></select></div>
+    <div class="ctl"><label class="name" for="clim-window">Window (hours)</label><output id="clim-window-val">168</output><input id="clim-window" type="range" min="6" max="720" value="168" step="1"></div>
+    <div class="checks"><label><input id="clim-tint" type="checkbox"> Tint points by data</label></div>
+    <p class="stat" id="clim-stat">No climate data yet. Fetch fills the timeline below with hourly ERA5 reanalysis for the scan location.</p>
+  </div></details>
+
+  <details class="grp"><summary><span>Planetary</span><span class="badge">NOAA / OWID</span></summary><div class="sec inner">
+    <div class="field"><label for="planet-src">Archive</label><select id="planet-src"><option value="noaa">NOAA GML &mdash; global gases</option><option value="owid">Our World in Data &mdash; emissions</option></select></div>
+    <div class="field"><label for="planet-series">Series</label><select id="planet-series"></select></div>
+    <div class="field" id="row-planet-read"><label for="planet-read">Reading</label><select id="planet-read"><option value="trend">trend (deseasonalised)</option><option value="average">monthly average</option></select></div>
+    <div class="field" id="row-planet-entity" style="display:none"><label for="planet-entity">Entity</label><select id="planet-entity" disabled><option>fetch a series first</option></select></div>
+    <div class="btnrow"><button class="btn primary-btn" id="fetch-planet" type="button">Fetch series</button></div>
+    <div class="field"><label for="planet-bind">Bind to</label><select id="planet-bind"><option value="deep" selected>deep time (own timeline)</option><option value="bound">site timeline (resampled)</option></select></div>
+    <div class="two">
+      <div class="field"><label for="planet-scale">Scale</label><select id="planet-scale"><option value="linear" selected>linear</option><option value="log">log</option></select></div>
+      <div class="field"><label for="planet-beh">Behaviour</label><select id="planet-beh"><option value="weight" selected>weight</option><option value="swell">swell</option><option value="press">press</option><option value="drift">drift</option></select></div>
+    </div>
+    <div class="ctl"><label class="name" for="planet-gain">Planet &rarr; points</label><output id="planet-gain-val">0.00</output><input id="planet-gain" type="range" min="0" max="2" value="0" step="0.01"></div>
+    <div class="field"><label for="planet-mapping">Mapping</label><select id="planet-mapping"><option value="uniform" selected>whole cloud, one moment</option><option value="spread">history spread across cloud</option></select></div>
+    <div class="field"><label for="planet-map">Spread along</label><select id="planet-map"><option value="index">point index</option><option value="x">x axis</option><option value="y">y axis</option><option value="z" selected>z axis</option><option value="radial">radial</option></select></div>
+    <div class="ctl"><label class="name" for="planet-window">History window</label><output id="planet-window-val">60</output><input id="planet-window" type="range" min="1" max="400" value="60" step="1"></div>
+    <div class="checks"><label><input id="planet-tint" type="checkbox"> Tint points by data</label></div>
+    <canvas id="planet-spark" height="40"></canvas>
+    <div class="rowhead"><button id="planet-play" type="button" aria-label="Play planetary timeline">&#9654;</button><input id="planet-range" type="range" min="0" max="0" value="0" step="0.25" disabled aria-label="Planetary timeline position" style="flex:1;accent-color:var(--accent)"></div>
+    <p class="stat" id="planet-stat">No planetary data yet. NOAA gives the gas itself (CO&#8322; 1979&ndash;, CH&#8324; 1983&ndash;, N&#8322;O 2001&ndash;, SF&#8326; 1997&ndash;); OWID gives what was emitted, per country, back to 1750. In deep time the series scrubs on its own slider; bound to the site timeline it is resampled onto the ERA5 hours.</p>
+  </div></details>
+</section>
+
+<script src="plotterlens-core.js"></script>
 
 <script type="module">
 import * as THREE from 'three';
@@ -236,6 +469,10 @@ const engineBadge = $('engine-badge'), tlLabel = $('tl-label');
 const spark = $('spark'), sparkCtx = spark.getContext('2d');
 const tlRange = $('tl-range'), playBtn = $('play');
 
+// PlotterLens's own filters and settings (generated file: see tools/sync_plotterlens.py)
+const CS = window.PlotterLensCore, LS = CS.S;
+LS.shape = 'l';   // scans read wider than they are tall; PlotterLens's phone default is portrait
+
 const P = {
   nRadius: 0.08, edgeMethod: 0, edgeThresh: 0.25, edgeFalloff: 4, flatSuppress: 0.7, edgeWeight: 0.9,
   dispMode: 'normal', amp: 0.5, baseDrive: 0.15, shimmer: 0.25,
@@ -244,7 +481,7 @@ const P = {
   planetGain: 0, planetBind: 'deep', planetScale: 'linear', planetBeh: 'weight',
   planetMapping: 'uniform', planetMap: 'z', planetWindow: 60, planetTint: false,
   density: 100, colorMode: 'scan', psize: 1.8,
-  plotStyle: 'contour', plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210, penW: 0.3,
+  plotStyle: 'wave', toneSrc: 'seen', plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210,
   plotPens: 3, plotLayerBy: 'data', seqFrames: 60, seqFps: 12
 };
 
@@ -254,29 +491,136 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 viewport.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0d12);
-const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100);
+const SCAN_BG = 0x0e1f11;
+scene.background = new THREE.Color(SCAN_BG);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.002, 100); // near plane small enough to stand among the points
 camera.position.set(1.4, 1.0, 1.6);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.minDistance = 0.2;   // can't dolly through the cloud and get trapped at zero
+controls.minDistance = 0.2;
 controls.maxDistance = 25;
 // OrbitControls zooms one fixed step per wheel EVENT, and many mice fire bursts
 // of events per notch — so zoom ourselves, proportional to the actual delta.
 controls.enableZoom = false;
-renderer.domElement.addEventListener('wheel', e => {
-  e.preventDefault();
-  let d = e.deltaY;
-  if (e.deltaMode === 1) d *= 33;        // lines -> px
-  else if (e.deltaMode === 2) d *= 300;  // pages -> px
-  const factor = Math.exp(Math.max(-120, Math.min(120, d)) * 0.0012);
-  const off = camera.position.clone().sub(controls.target);
-  const len = Math.min(controls.maxDistance, Math.max(controls.minDistance, off.length() * factor));
-  camera.position.copy(controls.target).add(off.normalize().multiplyScalar(len));
-}, { passive: false });
+
+/* free camera: orbit is the default, fly and walk roam inside the cloud */
+const nav = { mode: 'orbit', speed: 0.4, yaw: 0, pitch: 0, shift: false, keys: new Set(),
+              vel: new THREE.Vector3(), pts: new Map(), pinch: 0, midX: 0, midY: 0, button: 0 };
+const NAV_HUD = {
+  orbit: 'drag to orbit · right-drag to pan · scroll pushes in · WASD to fly',
+  fly: 'WASD move · Q/E down, up · drag to look · scroll forward · Shift fast · Esc orbit',
+  walk: 'WASD walk, level · Q/E lower, raise · drag to look · scroll forward · Shift fast · Esc orbit'
+};
+const eulerYXZ = new THREE.Euler(0, 0, 0, 'YXZ');
+const camDir = (x, y, z) => new THREE.Vector3(x, y, z).applyQuaternion(camera.quaternion);
+
+function applyLook() {
+  eulerYXZ.set(nav.pitch, nav.yaw, 0, 'YXZ');
+  camera.quaternion.setFromEuler(eulerYXZ);
+}
+
+function setNavMode(mode) {
+  if (mode !== nav.mode) {
+    if (mode === 'orbit') { // carry on orbiting a point just ahead of wherever the roaming ended
+      controls.target.copy(camera.position).addScaledVector(camDir(0, 0, -1), 0.5);
+      controls.enabled = true;
+      controls.update();
+      nav.keys.clear();
+      nav.vel.set(0, 0, 0);
+    } else if (nav.mode === 'orbit') {
+      eulerYXZ.setFromQuaternion(camera.quaternion, 'YXZ');
+      nav.yaw = eulerYXZ.y; nav.pitch = eulerYXZ.x;
+      controls.enabled = false;
+    }
+    nav.mode = mode;
+  }
+  for (const m of ['orbit', 'fly', 'walk']) $('nav-' + m).setAttribute('aria-pressed', String(m === mode));
+  $('hud').textContent = NAV_HUD[mode];
+  $('navSum').textContent = mode[0].toUpperCase() + mode.slice(1);
+  updateReadout();
+}
+
+function updateNav(dt) {
+  if (nav.mode === 'orbit') return;
+  const k = c => nav.keys.has(c) ? 1 : 0;
+  const f = (k('KeyW') | k('ArrowUp')) - (k('KeyS') | k('ArrowDown'));
+  const r = (k('KeyD') | k('ArrowRight')) - (k('KeyA') | k('ArrowLeft'));
+  const u = k('KeyE') - k('KeyQ');
+  const fwd = camDir(0, 0, -1), right = camDir(1, 0, 0);
+  if (nav.mode === 'walk') { // stay level: looking up or down doesn't change your height
+    fwd.y = 0; fwd.normalize();
+    right.y = 0; right.normalize();
+  }
+  const wish = new THREE.Vector3().addScaledVector(fwd, f).addScaledVector(right, r);
+  wish.y += u;
+  if (wish.lengthSq() > 1) wish.normalize();
+  wish.multiplyScalar(nav.speed * (nav.shift ? 3 : 1));
+  nav.vel.lerp(wish, 1 - Math.exp(-dt * 12)); // ease in and out so stills aren't jolted
+  if (nav.vel.lengthSq() > 1e-8) camera.position.addScaledVector(nav.vel, dt);
+  else nav.vel.set(0, 0, 0);
+}
+
+function navSlide(dx, dy) {
+  const k = nav.speed * 0.004;
+  camera.position.addScaledVector(camDir(1, 0, 0), -dx * k).addScaledVector(camDir(0, 1, 0), dy * k);
+}
+
+{
+  const el = renderer.domElement;
+  const twoFinger = () => {
+    const [a, b] = [...nav.pts.values()];
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+  el.addEventListener('pointerdown', e => {
+    if (nav.mode === 'orbit') return;
+    el.setPointerCapture(e.pointerId);
+    nav.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    nav.button = e.button;
+    if (nav.pts.size === 2) { const t = twoFinger(); nav.pinch = t.d; nav.midX = t.x; nav.midY = t.y; }
+  });
+  el.addEventListener('pointermove', e => {
+    if (nav.mode === 'orbit' || !nav.pts.has(e.pointerId)) return;
+    const p = nav.pts.get(e.pointerId), dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (nav.pts.size === 2) { // pinch moves forward and back, two fingers together slide
+      const t = twoFinger();
+      camera.position.addScaledVector(camDir(0, 0, -1), (t.d - nav.pinch) * nav.speed * 0.008);
+      navSlide(t.x - nav.midX, t.y - nav.midY);
+      nav.pinch = t.d; nav.midX = t.x; nav.midY = t.y;
+    } else if (nav.button === 0) {
+      nav.yaw -= dx * 0.0032;
+      nav.pitch = Math.max(-1.55, Math.min(1.55, nav.pitch - dy * 0.0032));
+      applyLook();
+    } else navSlide(dx, dy);
+  });
+  const release = e => nav.pts.delete(e.pointerId);
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('contextmenu', e => { if (nav.mode !== 'orbit') e.preventDefault(); });
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    let d = e.deltaY;
+    if (e.deltaMode === 1) d *= 33;        // lines -> px
+    else if (e.deltaMode === 2) d *= 300;  // pages -> px
+    d = Math.max(-120, Math.min(120, d));
+    if (nav.mode !== 'orbit') { camera.position.addScaledVector(camDir(0, 0, -1), -d * 0.002 * nav.speed); return; }
+    const factor = Math.exp(d * 0.0012);
+    const off = camera.position.clone().sub(controls.target);
+    const want = off.length() * factor;
+    if (want < controls.minDistance) { // out of zoom: push the pivot forward too, so scrolling carries on into the cloud
+      const push = camDir(0, 0, -1).multiplyScalar((1 - factor) * 0.5);
+      camera.position.add(push);
+      controls.target.add(push);
+      return;
+    }
+    const len = Math.min(controls.maxDistance, want);
+    camera.position.copy(controls.target).add(off.normalize().multiplyScalar(len));
+  }, { passive: false });
+}
 
 function recenterView() {
+  setNavMode('orbit');
   camera.position.set(1.4, 1.0, 1.6);
   controls.target.set(0, 0, 0);
   controls.update();
@@ -301,6 +645,7 @@ window.addEventListener('resize', resize);
 
 /* ---------- state ---------- */
 const MAX_INPUT_POINTS = 120000;
+const MAX_POINT_PX = 48;               // cap on a rendered point's diameter, in drawing-buffer pixels
 let rawPos = null, rawCol = null;      // sampled, un-normalized, as loaded
 let basePts = new Float32Array(0);     // normalized positions, n*3
 let baseCol = null;                    // n*3 rgb 0..1 or null
@@ -318,6 +663,7 @@ let upTurns = 0;                       // rotate up-axis presses
 let useWasm = false, wasm = null;
 let clockT = 0;
 let sourceName = 'none';
+let dataOn = true, dataMix = 1;        // the data toggle eases dataMix so before/after reads as a change
 
 const audio = { loaded: false, name: '', env: null, low: null, mid: null, high: null };
 const climate = { loaded: false, times: [], series: {}, varName: '', norm: null, min: 0, max: 1, unit: '', windDir: null, source: '',
@@ -658,6 +1004,10 @@ function rebuildGeometry() {
   colAttr = new THREE.BufferAttribute(new Float32Array(displaced.length).fill(0.8), 3);
   geometry.setAttribute('color', colAttr);
   const material = new THREE.PointsMaterial({ size: P.psize * 0.004, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.95 });
+  // perspective-scaled points would otherwise swell to fill the screen as you pass through them
+  material.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <fog_vertex>', `#include <fog_vertex>\n  gl_PointSize = min(gl_PointSize, ${MAX_POINT_PX.toFixed(1)});`);
+  };
   points = new THREE.Points(geometry, material);
   points.frustumCulled = false;
   scene.add(points);
@@ -690,6 +1040,7 @@ function updateColors() {
   }
   srcColors = c.slice();
   colAttr.needsUpdate = true;
+  markPlotDirty();
 }
 
 function recomputeDensityMask() {
@@ -768,7 +1119,7 @@ function kinConnect() {
   ws.onopen = () => {
     live.on = true; live.ws = ws; live.center = null; live.frames = 0;
     sourceName = 'kinect live';
-    kinBtn.textContent = 'disconnect';
+    kinBtn.textContent = 'Disconnect';
     kinBtn.classList.add('on');
     kinStat.textContent = 'Connected — waiting for frames…';
   };
@@ -777,7 +1128,7 @@ function kinConnect() {
   ws.onclose = () => {
     const was = live.on;
     live.on = false; live.ws = null;
-    kinBtn.textContent = 'connect';
+    kinBtn.textContent = 'Connect';
     kinBtn.classList.remove('on');
     if (was) kinStat.textContent = 'Disconnected. Last frame kept — freeze ran a full edge pass.';
     if (was && n) kinFreeze(false);
@@ -1351,7 +1702,7 @@ function drawPlanetSpark() {
   if (!planet.loaded || !planet.norm) return;
   const a = P.planetBind === 'bound' && planet.bound ? planet.bound : planet.norm;
   const N = a.length;
-  c.strokeStyle = '#6f9ec9'; c.lineWidth = 1;
+  c.strokeStyle = '#a9c4ae'; c.lineWidth = 1;
   c.beginPath();
   for (let x = 0; x < w; x++) {
     const idx = Math.min(N - 1, Math.floor(x / w * N));
@@ -1361,7 +1712,7 @@ function drawPlanetSpark() {
   c.stroke();
   const t = P.planetBind === 'bound' ? tl.t : planet.t;
   const px = N > 1 ? Math.max(0, Math.min(1, t / (N - 1))) * w : 0;
-  c.strokeStyle = '#c96f4a'; c.lineWidth = 1.5;
+  c.strokeStyle = '#e5f15c'; c.lineWidth = 1.5;
   c.beginPath(); c.moveTo(px, 2); c.lineTo(px, 38); c.stroke();
 }
 
@@ -1420,20 +1771,20 @@ function drawSpark() {
     c.stroke();
   };
   if (P.epochMode === 'difference' && climate.normD) {
-    c.strokeStyle = '#2a3348'; c.lineWidth = 1; // zero-anomaly midline
+    c.strokeStyle = '#356a3e'; c.lineWidth = 1; // zero-anomaly midline
     c.setLineDash([3, 4]);
     c.beginPath(); c.moveTo(0, 47 - 0.5 * 42); c.lineTo(w, 47 - 0.5 * 42); c.stroke();
     c.setLineDash([]);
-    strokeSeries(climate.normD, '#b06fc9');
+    strokeSeries(climate.normD, '#66cccc');
   } else if (P.epochMode === 'split' && climate.normB) {
-    strokeSeries(climate.norm, '#3d4a68');
-    strokeSeries(climate.normB, '#c96f4a');
+    strokeSeries(climate.norm, '#a9c4ae');
+    strokeSeries(climate.normB, '#e83b68');
   } else {
-    strokeSeries(climate.norm, '#3d4a68');
+    strokeSeries(climate.norm, '#a9c4ae');
   }
   // playhead
   const px = tl.len > 1 ? tl.t / (tl.len - 1) * w : 0;
-  c.strokeStyle = '#c96f4a';
+  c.strokeStyle = '#e5f15c';
   c.lineWidth = 1.5;
   c.beginPath(); c.moveTo(px, 2); c.lineTo(px, 50); c.stroke();
 }
@@ -1500,6 +1851,7 @@ function computeDisplacementFrame() {
 function displaceInto(buf, normArr, dirArr, tc, audioArr, beh, len, spread) {
   const A = P.amp * 0.35;
   const climOn = !!normArr;
+  const M = dataMix;
   for (let i = 0; i < n; i++) {
     const bx = basePts[i*3], by = basePts[i*3+1], bz = basePts[i*3+2];
     if (visMask && !visMask[i]) { // hidden points parked far away
@@ -1591,15 +1943,15 @@ function displaceInto(buf, normArr, dirArr, tc, audioArr, beh, len, spread) {
       }
     }
 
-    buf[i*3] = bx + dx; buf[i*3+1] = by + dy; buf[i*3+2] = bz + dz;
+    buf[i*3] = bx + dx * M; buf[i*3+1] = by + dy * M; buf[i*3+2] = bz + dz * M;
     if (tc) {
       let r = srcColors[i*3], g = srcColors[i*3+1], b = srcColors[i*3+2];
       if (PF.climTint) { // warm tint by local weather value
-        const t = vC * 0.75;
+        const t = vC * 0.75 * M;
         r += (0.95 - r) * t; g += (0.42 - g) * t; b += (0.22 - b) * t;
       }
       if (PF.tint) { // sooty tint by planetary value — a different register to the weather
-        const t = vP * 0.8;
+        const t = vP * 0.8 * M;
         r += (0.17 - r) * t; g += (0.14 - g) * t; b += (0.21 - b) * t;
       }
       tc[i*3] = r; tc[i*3+1] = g; tc[i*3+2] = b;
@@ -1608,9 +1960,6 @@ function displaceInto(buf, normArr, dirArr, tc, audioArr, beh, len, spread) {
 }
 
 /* ---------- plotter ---------- */
-// pen palette for layered plots (layer 0 first)
-const PENS = ['#1a1a1a', '#c94f2a', '#2a6bc9', '#3d7a44'];
-
 function climValPoint(i) { // same sampling the displacement uses
   if (!climate.loaded || !climate.norm || tl.len < 1) return 0;
   const normArr = (P.epochMode === 'difference' && climate.normD) ? climate.normD : climate.norm;
@@ -1638,42 +1987,129 @@ function catmullPath(pts, closed, f) {
   return d;
 }
 
-function buildPlotLayers() {
+// Page size and drawable area in mm, the same shape PlotterLens uses.
+function paperWH() {
+  if (LS.size === 'custom') return [P.pageW, P.pageH];
+  const [a, b] = CS.SIZES[LS.size];
+  return LS.shape === 'l' ? [b, a] : LS.shape === 'sq' ? [a, a] : [a, b];
+}
+function plotDims() {
+  const [W, H] = paperWH();
+  const m = Math.min(LS.margin, Math.min(W, H) / 2 - 5);
+  return { W, H, mx: m, my: m, dw: W - 2 * m, dh: H - 2 * m };
+}
+
+// Where the page sits over the viewport, in CSS pixels. The plot canvas, the
+// on-screen frame and the projection all come from this one placement, so what
+// is inside the frame in scan view is exactly what lands on the paper.
+const PAGE_FIT = 0.94;
+function plotFrame(d) {
+  const vh = viewport.clientHeight || 1, vw = vh * camera.aspect;
+  const s = Math.min(vw * PAGE_FIT / d.W, vh * PAGE_FIT / d.H);
+  return { vw, vh, s, px: (vw - d.W * s) / 2, py: (vh - d.H * s) / 2 };
+}
+
+// Every point the camera can see inside the page frame, projected to page mm.
+function projectView(d) {
+  camera.updateMatrixWorld();
+  const f = plotFrame(d), v = new THREE.Vector3();
+  const inv = camera.matrixWorldInverse, proj = camera.projectionMatrix, near = camera.near;
+  const vis = new Int32Array(n), nd = new Float32Array(n * 2), nb = new Float32Array(n * 2);
+  const depth = new Float32Array(n), dist = new Float32Array(n), mag = new Float32Array(n);
+  const x1 = d.mx + d.dw, y1 = d.my + d.dh;
+  const pageX = ndc => ((ndc * 0.5 + 0.5) * f.vw - f.px) / f.s;
+  const pageY = ndc => ((-ndc * 0.5 + 0.5) * f.vh - f.py) / f.s;
+  let m = 0, mmax = 1e-9;
+  for (let i = 0; i < n; i++) {
+    if (visMask && !visMask[i]) continue;
+    v.set(displaced[i*3], displaced[i*3+1], displaced[i*3+2]).applyMatrix4(inv);
+    const z = -v.z;
+    if (z <= near) continue;                 // behind the camera: would otherwise project mirrored
+    v.applyMatrix4(proj);
+    const X = pageX(v.x), Y = pageY(v.y);
+    if (X < d.mx || X > x1 || Y < d.my || Y > y1) continue;
+    vis[m] = i; nd[m*2] = X; nd[m*2+1] = Y; depth[m] = v.z; dist[m] = z;
+    v.set(basePts[i*3], basePts[i*3+1], basePts[i*3+2]).applyMatrix4(inv);
+    if (-v.z > near) { v.applyMatrix4(proj); nb[m*2] = pageX(v.x); nb[m*2+1] = pageY(v.y); }
+    else { nb[m*2] = X; nb[m*2+1] = Y; }
+    mag[m] = Math.hypot(displaced[i*3]-basePts[i*3], displaced[i*3+1]-basePts[i*3+1], displaced[i*3+2]-basePts[i*3+2]);
+    if (mag[m] > mmax) mmax = mag[m];
+    m++;
+  }
+  for (let k = 0; k < m; k++) mag[k] /= mmax;
+  return { frame: f, count: m, vis: vis.subarray(0, m), nd: nd.subarray(0, m*2), nb: nb.subarray(0, m*2),
+           depth: depth.subarray(0, m), dist: dist.subarray(0, m), mag: mag.subarray(0, m) };
+}
+
+// The picture PlotterLens's filters read: the view inside the frame, as grayscale.
+// Points are splatted nearest-first, then gaps between them are filled; where
+// there are no points at all the field stays white, so no ink is laid there.
+function rasterField(view, d, res) {
+  let w = res, h = Math.round(w * d.dh / d.dw);
+  const maxH = Math.round(res * 1.45);
+  if (h > maxH) { h = maxH; w = Math.round(h * d.dw / d.dh); }
+  w = Math.max(w, 8); h = Math.max(h, 8);
+  const N = w * h, tone = new Float32Array(N), mask = new Float32Array(N), zb = new Float32Array(N).fill(Infinity);
+  const cellPerPx = w / (d.dw * view.frame.s);
+  const sizeK = P.psize * 0.004 * view.frame.vh * 0.5;   // same size law as the point shader
+  const col = colAttr ? colAttr.array : null;
+  let dn = Infinity, df = -Infinity;
+  for (let k = 0; k < view.count; k++) { if (view.dist[k] < dn) dn = view.dist[k]; if (view.dist[k] > df) df = view.dist[k]; }
+  const dSpan = df - dn || 1, src = P.toneSrc;
+  for (let k = 0; k < view.count; k++) {
+    const i = view.vis[k], z = view.dist[k];
+    let t = 0;
+    if (src === 'depth') t = (z - dn) / dSpan;
+    else if (src === 'edge') t = 1 - (edgeScores[i] ?? 0);
+    else if (src === 'data') t = 1 - view.mag[k];
+    else if (src === 'seen' && col) t = 0.299 * col[i*3] + 0.587 * col[i*3+1] + 0.114 * col[i*3+2];
+    const x = (view.nd[k*2] - d.mx) / d.dw * w, y = (view.nd[k*2+1] - d.my) / d.dh * h;
+    const r = Math.max(0.5, Math.min(6, 0.5 * Math.min(MAX_POINT_PX, sizeK / z) * cellPerPx));
+    const x0 = Math.max(0, Math.floor(x - r)), x1 = Math.min(w - 1, Math.floor(x + r));
+    const y0 = Math.max(0, Math.floor(y - r)), y1 = Math.min(h - 1, Math.floor(y + r));
+    for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++) {
+      const dx = xx + 0.5 - x, dy = yy + 0.5 - y;
+      if (r > 1 && dx*dx + dy*dy > r*r) continue;
+      const c = yy * w + xx;
+      if (z < zb[c]) { zb[c] = z; tone[c] = t; mask[c] = 1; }
+    }
+  }
+  const blur = Math.max(1, Math.round(w / 130));
+  const T = CS.boxBlur(tone, w, h, blur), M = CS.boxBlur(mask, w, h, blur);
+  const gray = new Float32Array(N);
+  for (let c = 0; c < N; c++) {
+    const m = M[c];
+    if (src === 'density') { gray[c] = 1 - Math.min(1, Math.sqrt(m) * 1.15); continue; }
+    if (m < 1e-3) { gray[c] = 1; continue; }
+    const a = Math.min(1, Math.max(0, (m - 0.03) / 0.17));
+    gray[c] = 1 + (T[c] / m - 1) * a * a * (3 - 2 * a);
+  }
+  return { gray, w, h };
+}
+
+function plotMeta() {
+  const meta = [`source scan: ${sourceName}`, `style: ${P.plotStyle}`, `data: ${dataOn ? 'on' : 'off'}`];
+  if (audio.loaded) meta.push(`audio: ${audio.name} (${P.audioBand})`);
+  if (climate.loaded) meta.push(`climate: ${climate.source} · ${climate.varName} @ ${climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))]} UTC`);
+  if (planetActive()) meta.push(`planetary: ${planet.source} · ${planet.label} = ${fmtBig(planetRawNow())} ${planet.unit} @ ${planetMomentLabel()} (${P.planetBind}, ${P.planetBeh}, gain ${P.planetGain})`);
+  return meta;
+}
+
+function buildPlotLayers(opts = {}) {
   if (!n) return null;
-  const W = P.pageW, H = P.pageH, margin = 12, g = P.plotGlyph;
-  const style = P.plotStyle, layers = P.plotPens;
+  const d = plotDims(), W = d.W, H = d.H, g = P.plotGlyph;
+  const view = projectView(d);
+  if (!P.plotStyle.startsWith('h:')) {
+    const fld = rasterField(view, d, opts.final ? 480 : opts.moving ? 180 : 320);
+    const polys = CS.run(fld.gray, fld.w, fld.h, d, { live: !opts.final, settle: opts.final ? 600 : 0 });
+    return { W, H, d, polys, paths: [], texts: [], meta: plotMeta() };
+  }
+  const style = P.plotStyle.slice(2), layers = P.plotPens;
   const fmt = v => (Math.round(v * 100) / 100).toString();
-  const vis = [];
-  for (let i = 0; i < n; i++) if (!visMask || visMask[i]) vis.push(i);
-  if (!vis.length) return null;
-  // project displaced + base points through the current camera
-  const v3 = new THREE.Vector3();
-  const nd = new Float32Array(vis.length * 2), nb = new Float32Array(vis.length * 2);
-  const depth = new Float32Array(vis.length);
-  let bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity;
-  for (let k = 0; k < vis.length; k++) {
-    const i = vis[k];
-    v3.set(displaced[i*3], displaced[i*3+1], displaced[i*3+2]).project(camera);
-    nd[k*2] = v3.x; nd[k*2+1] = -v3.y; depth[k] = v3.z;
-    bx0 = Math.min(bx0, v3.x); bx1 = Math.max(bx1, v3.x);
-    by0 = Math.min(by0, -v3.y); by1 = Math.max(by1, -v3.y);
-    v3.set(basePts[i*3], basePts[i*3+1], basePts[i*3+2]).project(camera);
-    nb[k*2] = v3.x; nb[k*2+1] = -v3.y;
-  }
-  const sc = Math.min((W - 2*margin) / (bx1 - bx0 || 1), (H - 2*margin) / (by1 - by0 || 1));
-  const ox = (W - (bx1 - bx0) * sc) / 2 - bx0 * sc;
-  const oy = (H - (by1 - by0) * sc) / 2 - by0 * sc;
-  const DX = k => nd[k*2] * sc + ox,  DY = k => nd[k*2+1] * sc + oy;
-  const BX = k => nb[k*2] * sc + ox, BY = k => nb[k*2+1] * sc + oy;
-  // displacement magnitude per point, normalized
-  const mag = new Float32Array(vis.length);
-  let mmax = 1e-9;
-  for (let k = 0; k < vis.length; k++) {
-    const i = vis[k];
-    mag[k] = Math.hypot(displaced[i*3]-basePts[i*3], displaced[i*3+1]-basePts[i*3+1], displaced[i*3+2]-basePts[i*3+2]);
-    mmax = Math.max(mmax, mag[k]);
-  }
-  for (let k = 0; k < vis.length; k++) mag[k] /= mmax;
+  if (!view.count) return { W, H, d, polys: null, paths: Array.from({ length: layers }, () => []), texts: Array.from({ length: layers }, () => []), meta: plotMeta() };
+  const { vis, nd, nb, depth, mag } = view;
+  const DX = k => nd[k*2],  DY = k => nd[k*2+1];
+  const BX = k => nb[k*2], BY = k => nb[k*2+1];
   // layer assignment attribute 0..1 per point
   let dmin = Infinity, dmax = -Infinity;
   for (let k = 0; k < vis.length; k++) { dmin = Math.min(dmin, depth[k]); dmax = Math.max(dmax, depth[k]); }
@@ -1918,68 +2354,214 @@ function buildPlotLayers() {
     }
   }
 
-  const meta = [];
-  meta.push(`source scan: ${sourceName}`);
-  if (audio.loaded) meta.push(`audio: ${audio.name} (${P.audioBand})`);
-  if (climate.loaded) meta.push(`climate: ${climate.source} · ${climate.varName} @ ${climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))]} UTC`);
-  if (planetOn) meta.push(`planetary: ${planet.source} · ${planet.label} = ${fmtBig(planetRawNow())} ${planet.unit} @ ${planetMomentLabel()} (${P.planetBind}, ${P.planetBeh}, gain ${P.planetGain})`);
-  return { W, H, paths: layerPaths, texts: layerTexts, meta };
+  return { W, H, d, polys: null, paths: layerPaths, texts: layerTexts, meta: plotMeta() };
 }
 
 function buildPlotSVG() {
-  const lay = buildPlotLayers();
+  const lay = buildPlotLayers({ final: true });
   if (!lay) return '';
+  const stroke = LS.pen;
+  const open = (i, col) => `  <g id="pen${i + 1}" inkscape:groupmode="layer" inkscape:label="${i + 1} pen ${i + 1} ${CS.colourName(col)} (${col})" fill="none" stroke="${col}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round">`;
   let body = '';
-  for (let L = 0; L < lay.paths.length; L++) {
-    if (!lay.paths[L].length && !lay.texts[L].length) continue;
-    body += `  <g inkscape:groupmode="layer" inkscape:label="pen ${L+1} ${PENS[L]}" stroke="${PENS[L]}" fill="none" stroke-width="${P.penW}" stroke-linecap="round" stroke-linejoin="round">\n`;
-    if (lay.paths[L].length) body += `    <path d="${lay.paths[L].join(' ')}"/>\n`;
-    if (lay.texts[L].length) body += `    <g fill="${PENS[L]}" stroke="none" font-family="monospace" text-anchor="middle">${lay.texts[L].map(t => `<text x="${t.x.toFixed(2)}" y="${t.y.toFixed(2)}" font-size="${t.s.toFixed(2)}">${t.ch === '&' ? '&amp;' : t.ch}</text>`).join('')}</g>\n`;
-    body += '  </g>\n';
+  if (LS.paperSvg) body += `  <g inkscape:groupmode="layer" inkscape:label="Paper (hide before plotting)"><rect width="${lay.W}" height="${lay.H}" fill="${LS.paperCol}"/></g>\n`;
+  if (lay.polys) {
+    const f = v => +v.toFixed(2), byLayer = [];
+    for (const p of lay.polys) (byLayer[p.layer] || (byLayer[p.layer] = [])).push(p);
+    byLayer.forEach((arr, li) => {
+      if (!arr) return;
+      let dd = '';
+      for (const p of arr) {
+        const q = p.pts;
+        dd += 'M' + f(q[0]) + ' ' + f(q[1]);
+        for (let i = 2; i < q.length; i += 2) dd += 'L' + f(q[i]) + ' ' + f(q[i + 1]);
+      }
+      body += `${open(li, CS.penColour(li, true))}<path d="${dd}"/></g>\n`;
+    });
+  } else {
+    for (let L = 0; L < lay.paths.length; L++) {
+      if (!lay.paths[L].length && !lay.texts[L].length) continue;
+      const col = LS.pens[L % 4];
+      body += open(L, col) + '\n';
+      if (lay.paths[L].length) body += `    <path d="${lay.paths[L].join(' ')}"/>\n`;
+      if (lay.texts[L].length) body += `    <g fill="${col}" stroke="none" font-family="monospace" text-anchor="middle">${lay.texts[L].map(t => `<text x="${t.x.toFixed(2)}" y="${t.y.toFixed(2)}" font-size="${t.s.toFixed(2)}">${t.ch === '&' ? '&amp;' : t.ch}</text>`).join('')}</g>\n`;
+      body += '  </g>\n';
+    }
   }
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${lay.W}mm" height="${lay.H}mm" viewBox="0 0 ${lay.W} ${lay.H}">\n  <!-- haunted points plot · ${lay.meta.join(' · ')} -->\n  <rect width="100%" height="100%" fill="white"/>\n${body}</svg>`;
+  const note = lay.meta.join(' · ').replace(/--/g, '- -');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${lay.W}mm" height="${lay.H}mm" viewBox="0 0 ${lay.W} ${lay.H}">\n  <!-- haunted points plot · ${note} -->\n${body}</svg>\n`;
 }
 
-/* live plot view: redraws the plot every other frame onto a canvas overlay */
+/* live plot view: the paper sits exactly over the page frame */
 const plotCv = $('plot-cv'), plotCtx = plotCv.getContext('2d');
-let plotLive = false;
+let plotLive = false, plotDirty = true, plotGap = 66, lastPlot = 0, lastCamMove = -1e9, focusFlash = 0;
+let thumbDirty = true, thumbInputAt = 0;
+const lastCamMatrix = new Float64Array(16);
+
+function markPlotDirty() {
+  plotDirty = true;
+  thumbDirty = true;
+  thumbInputAt = performance.now();
+}
+
 function togglePlotLive(force) {
   plotLive = force === undefined ? !plotLive : force;
   $('plot-overlay').style.display = plotLive ? 'flex' : 'none';
   const b = $('plot-preview-btn');
-  b.classList.toggle('on', plotLive);
-  b.textContent = plotLive ? 'live plot: on' : 'live plot view';
+  b.dataset.state = plotLive ? 'on' : 'off';
+  b.setAttribute('aria-label', plotLive ? 'Show the scan' : 'Show the plot');
+  $('shutter-cap').textContent = plotLive ? 'View scan' : 'View plot';
+  plotDirty = true;
   if (plotLive) drawPlotFrame();
+  else updateReadout();
 }
-function drawPlotFrame() {
-  const lay = buildPlotLayers();
+
+function styleLabel() {
+  const r = document.querySelector('input[name="mode"]:checked');
+  const l = r && document.querySelector(`label[for="${r.id}"]`);
+  return l ? l.textContent : '';
+}
+function paperLabel() {
+  if (LS.size === 'custom') return `${P.pageW} × ${P.pageH} mm`;
+  return LS.size.toUpperCase() + { p: '', l: ' landscape', sq: ' square' }[LS.shape];
+}
+function updateReadout(stats) {
+  $('readout').textContent = [paperLabel(), styleLabel(), nav.mode].concat(stats || []).join(' · ');
+}
+
+function updateFrame(splitOn) {
+  const el = $('frame');
+  const show = !plotLive && !splitOn && $('btn-frame').getAttribute('aria-pressed') === 'true';
+  if (el.hidden === show) el.hidden = !show;
+  if (!show) return;
+  const d = plotDims(), f = plotFrame(d);
+  const css = `left:${(f.px + d.mx * f.s).toFixed(1)}px;top:${(f.py + d.my * f.s).toFixed(1)}px;width:${(d.dw * f.s).toFixed(1)}px;height:${(d.dh * f.s).toFixed(1)}px`;
+  if (el.dataset.css !== css) { el.dataset.css = css; el.style.cssText = css; }
+}
+
+function drawPlotFrame(moving) {
+  const t0 = performance.now();
+  const lay = buildPlotLayers({ moving });
   if (!lay) return;
-  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  const d = lay.d, f = plotFrame(d);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const s = Math.min((vw * 0.94) / lay.W, (vh * 0.94) / lay.H);
-  const cw = Math.round(lay.W * s), ch = Math.round(lay.H * s);
-  if (plotCv.width !== Math.round(cw * dpr) || plotCv.height !== Math.round(ch * dpr)) {
-    plotCv.width = Math.round(cw * dpr); plotCv.height = Math.round(ch * dpr);
-    plotCv.style.width = cw + 'px'; plotCv.style.height = ch + 'px';
-  }
+  const cssW = Math.round(d.W * f.s), cssH = Math.round(d.H * f.s);
+  const k = Math.min(f.s * dpr, Math.sqrt(9e6 / (d.W * d.H)));
+  const pw = Math.round(d.W * k), ph = Math.round(d.H * k);
+  if (plotCv.width !== pw || plotCv.height !== ph) { plotCv.width = pw; plotCv.height = ph; }
+  if (plotCv.dataset.css !== cssW + 'x' + cssH) { plotCv.dataset.css = cssW + 'x' + cssH; plotCv.style.width = cssW + 'px'; plotCv.style.height = cssH + 'px'; }
   const c = plotCtx;
-  c.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
-  c.fillStyle = '#fff';
-  c.fillRect(0, 0, lay.W, lay.H);
-  c.lineCap = 'round'; c.lineJoin = 'round';
-  c.lineWidth = Math.max(P.penW, 0.35 / s); // keep hairlines visible on screen
-  c.textAlign = 'center';
-  for (let L = 0; L < lay.paths.length; L++) {
-    if (lay.paths[L].length) {
-      c.strokeStyle = PENS[L];
-      c.stroke(new Path2D(lay.paths[L].join(' ')));
-    }
-    if (lay.texts[L].length) {
-      c.fillStyle = PENS[L];
-      for (const t of lay.texts[L]) { c.font = t.s.toFixed(2) + 'px monospace'; c.fillText(t.ch, t.x, t.y); }
-    }
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = LS.paperCol;
+  c.fillRect(0, 0, pw, ph);
+  if (LS.camUnder) { // preview only: never in the SVG
+    const gl = renderer.domElement, sc = gl.width / (viewport.clientWidth || 1);
+    c.globalAlpha = LS.camAlpha / 100;
+    c.drawImage(gl, (f.px + d.mx * f.s) * sc, (f.py + d.my * f.s) * sc, d.dw * f.s * sc, d.dh * f.s * sc, d.mx * k, d.my * k, d.dw * k, d.dh * k);
+    c.globalAlpha = 1;
   }
+  c.strokeStyle = CS.darkPaper() ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.12)';
+  c.lineWidth = 1; c.setLineDash([5, 5]);
+  c.strokeRect(d.mx * k, d.my * k, d.dw * k, d.dh * k);
+  c.setLineDash([]);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  c.lineWidth = Math.max(LS.pen * k, 1);
+  let lines = 0, length = 0;
+  if (lay.polys) {
+    const byLayer = [];
+    for (const p of lay.polys) (byLayer[p.layer] || (byLayer[p.layer] = [])).push(p);
+    c.globalCompositeOperation = LS.mode === 'duotone' ? (CS.darkPaper() ? 'screen' : 'multiply') : 'source-over';
+    byLayer.forEach((arr, li) => {
+      if (!arr) return;
+      c.strokeStyle = CS.penColour(li);
+      c.beginPath();
+      for (const p of arr) {
+        const q = p.pts;
+        c.moveTo(q[0] * k, q[1] * k);
+        for (let i = 2; i < q.length; i += 2) {
+          c.lineTo(q[i] * k, q[i + 1] * k);
+          length += Math.hypot(q[i] - q[i-2], q[i+1] - q[i-1]);
+        }
+      }
+      c.stroke();
+    });
+    c.globalCompositeOperation = 'source-over';
+    lines = lay.polys.length;
+  } else {
+    c.setTransform(k, 0, 0, k, 0, 0);
+    c.lineWidth = Math.max(LS.pen, 1 / k);
+    c.textAlign = 'center';
+    for (let L = 0; L < lay.paths.length; L++) {
+      const col = LS.pens[L % 4];
+      if (lay.paths[L].length) { c.strokeStyle = col; c.stroke(new Path2D(lay.paths[L].join(' '))); lines += lay.paths[L].length; }
+      if (lay.texts[L].length) {
+        c.fillStyle = col;
+        for (const t of lay.texts[L]) { c.font = t.s.toFixed(2) + 'px monospace'; c.fillText(t.ch, t.x, t.y); }
+        lines += lay.texts[L].length;
+      }
+    }
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  if (LS.focus && (LS.showTarget || performance.now() < focusFlash)) {
+    const x = LS.focus.x * d.W * k, y = LS.focus.y * d.H * k, r = 15 * dpr;
+    c.strokeStyle = '#e5f15c'; c.lineWidth = 2 * dpr;
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
+    c.moveTo(x - r * 1.5, y); c.lineTo(x + r * 1.5, y); c.moveTo(x, y - r * 1.5); c.lineTo(x, y + r * 1.5);
+    c.stroke();
+  }
+  plotDirty = false;
+  const cost = performance.now() - t0;
+  plotGap = Math.max(66, cost * 1.5);  // heavy styles refresh less often rather than dragging the camera
+  const n2 = lines >= 1000 ? (lines / 1000).toFixed(1) + 'k' : lines;
+  updateReadout(length ? [`${(length / 1000).toFixed(1)} m`, `${n2} lines`] : [`${n2} marks`]);
 }
+
+/* style thumbnails: each previews its filter on the current view, one per idle frame */
+let THUMBS = [], thumbStamp = 0, thumbSnap = null, lastThumb = 0;
+function drawNextThumb(now) {
+  if (!thumbSnap || now - lastThumb < 40) return;
+  const cur = Math.max(0, THUMBS.findIndex(t => t.mode === LS.mode));
+  let pick = null;
+  for (let k = 0; k < THUMBS.length && !pick; k++) {
+    const off = k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2);
+    const th = THUMBS[(cur + off + THUMBS.length) % THUMBS.length];
+    if (th.stamp !== thumbStamp) pick = th;
+  }
+  if (!pick) return;
+  lastThumb = now;
+  pick.stamp = thumbStamp;
+  const { gray, w, h, d } = thumbSnap;
+  const out = CS.thumb(pick.mode, gray, w, h, d);
+  const { cv, ctx } = pick, W = cv.width, H = cv.height;
+  const k = Math.max(W / d.W, H / d.H) * 1.08, ox = (W - d.W * k) / 2, oy = (H - d.H * k) / 2;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = LS.paperCol; ctx.fillRect(0, 0, W, H);
+  ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const byL = [], keep = LS.mode;
+  for (const p of out) (byL[p.layer] || (byL[p.layer] = [])).push(p);
+  LS.mode = pick.mode;   // colour by the thumbnail's own style
+  ctx.globalCompositeOperation = pick.mode === 'duotone' ? (CS.darkPaper() ? 'screen' : 'multiply') : 'source-over';
+  byL.forEach((arr, li) => {
+    if (!arr) return;
+    ctx.strokeStyle = CS.penColour(li);
+    ctx.beginPath();
+    for (const p of arr) {
+      const q = p.pts;
+      ctx.moveTo(ox + q[0] * k, oy + q[1] * k);
+      for (let i = 2; i < q.length; i += 2) ctx.lineTo(ox + q[i] * k, oy + q[i + 1] * k);
+    }
+    ctx.stroke();
+  });
+  ctx.globalCompositeOperation = 'source-over';
+  LS.mode = keep;
+}
+function refreshThumbSnap() {
+  const d = plotDims();
+  const fld = rasterField(projectView(d), d, 200);
+  thumbSnap = { gray: fld.gray, w: fld.w, h: fld.h, d };
+  thumbStamp++;
+  thumbDirty = false;
+}
+
 function downloadPlotSVG() {
   const svg = buildPlotSVG();
   if (!svg) return;
@@ -1987,7 +2569,7 @@ function downloadPlotSVG() {
   const a = document.createElement('a');
   a.href = url;
   const stamp = climate.loaded ? climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))].replace(/[:T]/g, '-') : 'manual';
-  a.download = `haunted_plot_${P.plotStyle}_${stamp}.svg`;
+  a.download = `haunted_plot_${P.plotStyle.replace(':', '-')}_${stamp}.svg`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -2106,7 +2688,7 @@ async function exportFrameSequence() {
     const stamp = haveWindow ? `${climate.times[Math.round(start)]}_to_${climate.times[Math.round(end)]}`.replace(/[:T]/g, '-') : 'manual';
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `haunted_frames_${P.plotStyle}_${frames}x_${stamp}.zip`;
+    a.download = `haunted_frames_${P.plotStyle.replace(':', '-')}_${frames}x_${stamp}.zip`;
     a.click();
     URL.revokeObjectURL(a.href);
     const secs = (frames / fps).toFixed(1);
@@ -2250,16 +2832,14 @@ $('kin-connect').addEventListener('click', kinConnect);
 $('kin-freeze').addEventListener('click', () => kinFreeze());
 bindRange('plot-detail', 'plotDetail');
 bindRange('plot-glyph', 'plotGlyph', v => v.toFixed(1));
-bindRange('page-w', 'pageW');
-bindRange('page-h', 'pageH');
-bindRange('pen-w', 'penW', v => v.toFixed(2));
-$('plot-style').addEventListener('change', e => P.plotStyle = e.target.value);
+bindRange('page-w', 'pageW', null, () => { syncLens(); });
+bindRange('page-h', 'pageH', null, () => { syncLens(); });
 $('plot-axis').addEventListener('change', e => P.plotAxis = Number(e.target.value));
 $('plot-pens').addEventListener('change', e => P.plotPens = Number(e.target.value));
 $('plot-layerby').addEventListener('change', e => P.plotLayerBy = e.target.value);
 $('plot-preview-btn').addEventListener('click', () => togglePlotLive());
-$('plot-close').addEventListener('click', () => togglePlotLive(false));
 $('plot-svg').addEventListener('click', downloadPlotSVG);
+$('plot-svg-2').addEventListener('click', downloadPlotSVG);
 $('seq-frames').addEventListener('input', e => { P.seqFrames = Math.max(2, Math.round(Number(e.target.value) || 60)); $('seq-frames-val').textContent = P.seqFrames; updateSeqDuration(); });
 $('seq-fps').addEventListener('change', e => { P.seqFps = Number(e.target.value); updateSeqDuration(); });
 $('seq-start').addEventListener('input', e => seq.start = Number(e.target.value));
@@ -2282,15 +2862,265 @@ async function handlePlyFile(file) {
   }
 }
 $('ply-in').addEventListener('change', e => { if (e.target.files[0]) handlePlyFile(e.target.files[0]); });
-const drop = $('drop');
-drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = '#6874ff'; });
-drop.addEventListener('dragleave', () => drop.style.borderColor = '#38425a');
-drop.addEventListener('drop', e => {
+// the whole window takes a dropped scan; the Scan section may be folded away
+const dropZone = $('drop');
+window.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = 'var(--accent)'; });
+window.addEventListener('dragleave', () => dropZone.style.borderColor = '');
+window.addEventListener('drop', e => {
   e.preventDefault();
-  drop.style.borderColor = '#38425a';
+  dropZone.style.borderColor = '';
   const f = e.dataTransfer.files[0];
   if (f && f.name.toLowerCase().endsWith('.ply')) handlePlyFile(f);
 });
+$('pick-ply').addEventListener('click', () => $('ply-in').click());
+
+/* ---------- PlotterLens controls (ids are prefixed: 'amp' etc. already mean something here) ---------- */
+const LENS_MODES = [['wave','Waves'],['spiral','Spiral'],['contour','Contour'],['ridges','Ridges'],['flow','Flow'],['blobs','Blobs'],['voronoi','Voronoi'],['subdiv','Subdiv'],['truchet','Truchet'],['veil','Veil'],['wavenet','Wave net'],['tris','Triangles'],['checker','Checker'],['opposing','Opposing'],['squares','Squares'],['hatch','Hatch'],['technical','Technical'],['duotone','Duotone'],['engrave','Engrave'],['etch','Etch'],['loop','Loop'],['snow','Snowflake'],['dots','Dots'],['hairs','Hairs'],['arrows','Arrows'],['suns','Suns'],['swirls','Swirls'],['ascii','ASCII'],['growth','Growth']]
+  .filter(([m]) => !CS.HIDDEN_MODES.includes(m));
+const HAUNTED_MODES = [['points','Points'],['contour','3D contour'],['rings','3D rings'],['flow','Data flow'],['rd','Reaction'],['hairs','Data hairs'],['arrows','Data arrows'],['circles','Circles'],['suns','Data suns'],['spirals','Spirals'],['ascii','Data ASCII']];
+
+function selectStyle(key) {
+  P.plotStyle = key;
+  if (!key.startsWith('h:')) LS.mode = key;
+  syncLens();
+}
+$('modes').innerHTML = LENS_MODES.map(([m, t]) => `<input class="sr" type="radio" name="mode" id="m-${m}" value="${m}"><label for="m-${m}"><canvas class="th" width="200" height="200" data-mode="${m}" aria-hidden="true"></canvas>${t}</label>`).join('');
+$('modes-haunted').innerHTML = HAUNTED_MODES.map(([m, t]) => `<input class="sr" type="radio" name="mode" id="mh-${m}" value="h:${m}"><label for="mh-${m}">${t}</label>`).join('');
+THUMBS = [...document.querySelectorAll('.modes .th')].map(cv => ({ cv, ctx: cv.getContext('2d'), mode: cv.dataset.mode, stamp: -1 }));
+document.querySelectorAll('input[name="mode"]').forEach(r => {
+  r.checked = r.value === P.plotStyle;
+  r.addEventListener('change', () => { if (r.checked) selectStyle(r.value); });
+});
+
+for (const sp of CS.SLIDERS) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ctl'; wrap.id = 'pl-c-' + sp.id;
+  wrap.innerHTML = `<label class="name" for="pl-${sp.id}"></label><output id="pl-o-${sp.id}"></output><input type="range" id="pl-${sp.id}" min="${sp.min}" max="${sp.max}" step="${sp.step}">`;
+  $(sp.parent || 'sliders').appendChild(wrap);
+  const input = wrap.querySelector('input');
+  input.value = LS[sp.id];
+  input.addEventListener('input', () => { LS[sp.id] = +input.value; syncLens(); });
+  wrap.querySelector('.name').addEventListener('dblclick', e => { e.preventDefault(); LS[sp.id] = CS.DEFAULTS[sp.id]; syncLens(); });
+}
+const bindCheck = (id, key) => { $(id).checked = !!LS[key]; $(id).addEventListener('change', () => { LS[key] = $(id).checked; syncLens(); }); };
+bindCheck('techBold', 'techBold'); bindCheck('techFrame', 'techFrame'); bindCheck('etchVig', 'etchVig');
+bindCheck('etchCurls', 'etchCurls'); bindCheck('etchOutline', 'etchOutline'); bindCheck('engDots', 'engDots');
+bindCheck('lens-auto', 'auto'); bindCheck('lens-invert', 'invert'); bindCheck('camUnder', 'camUnder');
+bindCheck('bandRev', 'bandRev'); bindCheck('showTarget', 'showTarget'); bindCheck('paperSvg', 'paperSvg');
+for (const key of ['engHatch', 'engLines', 'cellFill', 'snowLook', 'blobFill']) {
+  document.querySelectorAll(`input[name="${key}"]`).forEach(r => {
+    r.checked = r.value === LS[key];
+    r.addEventListener('change', () => { if (r.checked) { LS[key] = r.value; syncLens(); } });
+  });
+}
+document.querySelectorAll('input[name="snowMany"]').forEach(r => {
+  r.checked = (r.value === 'many') === !!LS.snowMany;
+  r.addEventListener('change', () => { if (r.checked) { LS.snowMany = r.value === 'many'; syncLens(); } });
+});
+document.querySelectorAll('input[name="cull"]').forEach(r => {
+  r.checked = r.value === LS.cull;
+  r.addEventListener('change', () => { if (r.checked) { LS.cull = r.value; if (CS.CULL_DEF[r.value] !== undefined) LS.cullAt = CS.CULL_DEF[r.value]; syncLens(); } });
+});
+document.querySelectorAll('input[name="colourMode"]').forEach(r => r.addEventListener('change', () => {
+  if (!r.checked) return;
+  LS.showColours = r.value === 'layers';
+  LS.bands = ['linear', 'radial', 'mix'].includes(r.value) ? r.value : 'off';
+  syncLens();
+}));
+for (let i = 0; i < 4; i++) {
+  $('pen' + i).value = LS.pens[i];
+  $('pen' + i).addEventListener('input', e => { LS.pens[i] = e.target.value; if (!LS.showColours && LS.bands === 'off') LS.showColours = true; syncLens(); });
+}
+$('btnShuffle').addEventListener('click', () => { LS.mixSeed = 1 + Math.floor(Math.random() * 1e6); syncLens(); });
+$('btnResetColours').addEventListener('click', () => {
+  LS.pens = CS.DEFAULTS.pens.slice();
+  for (let i = 0; i < 4; i++) $('pen' + i).value = LS.pens[i];
+  LS.showColours = false; LS.bands = 'off'; LS.paperSvg = false; $('paperSvg').checked = false;
+  setPaperColour(CS.DEFAULTS.paperCol);
+  syncLens();
+});
+$('btn-reset').addEventListener('click', () => {
+  for (const sp of CS.SLIDERS) if (CS.DEFAULTS[sp.id] !== undefined) LS[sp.id] = CS.DEFAULTS[sp.id];
+  if (CS.CULL_DEF[LS.cull] !== undefined) LS.cullAt = CS.CULL_DEF[LS.cull];
+  LS.margin = CS.DEFAULTS.margin; $('margin').value = LS.margin;
+  syncLens();
+});
+
+/* paper */
+const paperSel = $('paperSize');
+Object.keys(CS.SIZES).reverse().forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k.toUpperCase(); paperSel.appendChild(o); });
+paperSel.insertAdjacentHTML('beforeend', '<option value="custom">Custom</option>');
+paperSel.value = LS.size;
+function setPaperRanges() {
+  const k = LS.size === 'custom' ? 1 : CS.scaleOf(LS.size);
+  $('pl-spacing').max = (10 * k).toFixed(1);
+  $('margin').max = String(Math.round(40 * k));
+}
+paperSel.addEventListener('change', () => {
+  if (paperSel.value !== 'custom' && LS.size !== 'custom') { // keep the drawing looking the same on a bigger or smaller sheet
+    const r = CS.scaleOf(paperSel.value) / CS.scaleOf(LS.size);
+    LS.spacing = +(LS.spacing * r).toFixed(1);
+    LS.margin = Math.round(LS.margin * r);
+  }
+  LS.size = paperSel.value;
+  setPaperRanges();
+  $('margin').value = LS.margin;
+  syncLens();
+});
+function setShape(sh) { LS.shape = sh; document.querySelectorAll('input[name="shape"]').forEach(r => { r.checked = r.value === sh; }); syncLens(); }
+document.querySelectorAll('input[name="shape"]').forEach(r => { r.checked = r.value === LS.shape; r.addEventListener('change', () => { if (r.checked) setShape(r.value); }); });
+$('btn-rotate').addEventListener('click', () => setShape({ p: 'l', l: 'sq', sq: 'p' }[LS.shape]));
+$('margin').value = LS.margin;
+$('margin').addEventListener('input', () => { LS.margin = +$('margin').value; syncLens(); });
+
+const PAPERS = [['#ebe5d9', 'Putty'], ['#ffffff', 'White'], ['#f6f0e1', 'Cream'], ['#cdb18a', 'Kraft'], ['#c9c9c4', 'Grey'], ['#17321b', 'Shell green'], ['#111111', 'Black']];
+function applySceneBackground() { scene.background.set($('scan-on-paper').checked ? LS.paperCol : SCAN_BG); }
+function setPaperColour(c) {
+  LS.paperCol = c;
+  document.querySelectorAll('#paperSwatches button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.c.toLowerCase() === c.toLowerCase())));
+  applySceneBackground();
+  markPlotDirty();
+}
+for (const [c, name] of PAPERS) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.c = c; b.title = name; b.style.background = c;
+  b.setAttribute('role', 'radio'); b.setAttribute('aria-label', name + ' paper');
+  b.addEventListener('click', () => setPaperColour(c));
+  $('paperSwatches').appendChild(b);
+}
+$('paperSwatches').insertAdjacentHTML('beforeend', '<label class="custom" title="Pick any colour">+<input type="color" id="paper-custom" aria-label="Custom paper colour"></label>');
+$('paper-custom').value = LS.paperCol;
+$('paper-custom').addEventListener('input', e => setPaperColour(e.target.value));
+$('scan-on-paper').addEventListener('change', applySceneBackground);
+$('tone-src').addEventListener('change', e => { P.toneSrc = e.target.value; });
+
+/* focal point */
+document.querySelectorAll('input[name="repel"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { LS.repel = r.value === '1'; syncLens(); } }));
+$('pull').addEventListener('input', e => { LS.pull = +e.target.value; syncLens(); });
+$('btnFocusOff').addEventListener('click', () => { LS.focus = null; syncLens(); });
+{
+  let timer = 0, sx = 0, sy = 0;
+  const cancel = () => clearTimeout(timer);
+  viewport.addEventListener('pointerdown', e => {
+    if (!plotLive || P.plotStyle.startsWith('h:')) return;
+    sx = e.clientX; sy = e.clientY;
+    timer = setTimeout(() => {
+      const r = plotCv.getBoundingClientRect();
+      const x = (sx - r.left) / r.width, y = (sy - r.top) / r.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+      LS.focus = { x, y };
+      focusFlash = performance.now() + 1200;
+      syncLens();
+    }, 500);
+  });
+  viewport.addEventListener('pointermove', e => { if (Math.hypot(e.clientX - sx, e.clientY - sy) > 8) cancel(); });
+  viewport.addEventListener('pointerup', cancel);
+  viewport.addEventListener('pointercancel', cancel);
+}
+
+function syncLens() {
+  const haunted = P.plotStyle.startsWith('h:');
+  $('lens-settings').hidden = haunted;
+  $('haunted-settings').hidden = !haunted;
+  $('lens-bg').hidden = haunted;
+  $('lens-focus').hidden = haunted;
+  $('customPage').hidden = LS.size !== 'custom';
+  $('blobFillRow').hidden = LS.mode !== 'blobs';
+  $('cellFillRow').hidden = LS.mode !== 'voronoi' && LS.mode !== 'subdiv';
+  $('techRow').hidden = LS.mode !== 'technical';
+  $('engRow').hidden = LS.mode !== 'engrave';
+  $('etchRow').hidden = LS.mode !== 'etch';
+  $('snowRow').hidden = LS.mode !== 'snow';
+  $('duoRow').hidden = LS.mode !== 'duotone';
+  $('cullCtl').hidden = LS.cull === 'off';
+  $('bandCtl').hidden = LS.bands === 'off';
+  $('cullTip').textContent = CS.CULL_TIPS[LS.cull] || '';
+  for (const sp of CS.SLIDERS) {
+    $('pl-c-' + sp.id).hidden = !!(sp.modes && !sp.modes.includes(LS.mode)) || !!(sp.when && !sp.when());
+    $('pl-c-' + sp.id).querySelector('.name').textContent = sp.id === 'camAlpha' ? 'Scan opacity' : sp.name();
+    $('pl-o-' + sp.id).textContent = CS.fmt(sp.id, LS[sp.id]);
+    const inp = $('pl-' + sp.id);
+    if (+inp.value !== LS[sp.id]) inp.value = LS[sp.id];
+  }
+  const colourMode = LS.bands !== 'off' ? LS.bands : LS.showColours ? 'layers' : 'none';
+  document.querySelectorAll('input[name="colourMode"]').forEach(r => { r.checked = r.value === colourMode; });
+  $('colourTip').textContent = CS.COLOUR_TIPS[colourMode];
+  $('colourSum').textContent = { none: 'None', layers: 'Layers', mix: 'Multi', linear: 'Linear', radial: 'Radial' }[colourMode];
+  $('bandRevRow').hidden = colourMode === 'mix';
+  $('mixRow').hidden = colourMode !== 'mix';
+  for (let i = 0; i < 4; i++) $('pname' + i).textContent = CS.colourName(LS.pens[i]);
+  $('focusCtl').hidden = !LS.focus;
+  $('focusSum').textContent = LS.focus ? (LS.repel ? 'Repel' : 'Attract') : 'None';
+  $('focusTip').textContent = LS.focus ? 'Long-press the paper again to move it.' : 'In plot view, long-press the paper to place a point the style reacts to.';
+  $('o-pull').textContent = LS.pull + '%';
+  $('pull').value = LS.pull;
+  $('fp-attract').checked = !LS.repel; $('fp-repel').checked = !!LS.repel;
+  $('cullSum').textContent = LS.cull === 'off' ? 'Off' : LS.cull[0].toUpperCase() + LS.cull.slice(1);
+  $('o-margin').textContent = LS.margin + ' mm';
+  const [W, H] = paperWH();
+  $('paperSum').textContent = paperLabel();
+  $('paperInfo').textContent = `${W} × ${H} mm`;
+  $('styleSum').textContent = $('mainSum').textContent = styleLabel();
+  updateReadout();
+  markPlotDirty();
+}
+
+/* the data toggle: the bare scan, or the scan with everything acting on it */
+function setDataOn(on) {
+  dataOn = on;
+  const b = $('data-toggle');
+  b.setAttribute('aria-pressed', String(on));
+  b.textContent = on ? 'Data on' : 'Data off';
+  markPlotDirty();
+}
+$('data-toggle').addEventListener('click', () => setDataOn(!dataOn));
+$('btn-frame').addEventListener('click', e => { const b = e.currentTarget; b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')); });
+for (const m of ['orbit', 'fly', 'walk']) $('nav-' + m).addEventListener('click', () => setNavMode(m));
+$('nav-speed').addEventListener('input', e => { nav.speed = +e.target.value; $('nav-speed-val').textContent = nav.speed.toFixed(2); });
+$('nav-fov').addEventListener('input', e => { camera.fov = +e.target.value; camera.updateProjectionMatrix(); $('nav-fov-val').textContent = e.target.value + '°'; markPlotDirty(); });
+
+// any control touched in the panel or timeline means the plot needs redrawing
+for (const el of [$('sheet'), $('timeline')]) { el.addEventListener('input', markPlotDirty); el.addEventListener('change', markPlotDirty); }
+// opening one section folds the others, so the long list never piles up
+const grps = [...document.querySelectorAll('#sheet details.grp')];
+grps.forEach(g => g.addEventListener('toggle', () => { if (g.open) grps.forEach(o => { if (o !== g) o.open = false; }); }));
+
+/* keyboard */
+const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+function keysBelongToControl(e) {
+  const t = e.target, tag = t && t.tagName;
+  if (tag === 'SELECT' || tag === 'TEXTAREA') return true;
+  if (tag !== 'INPUT') return false;
+  if (['text', 'number', 'date'].includes(t.type)) return true;
+  return e.code.startsWith('Arrow');  // arrows still adjust a focused slider or radio group
+}
+window.addEventListener('keydown', e => {
+  if (e.key === 'Shift') nav.shift = true;
+  if (e.ctrlKey || e.metaKey || e.altKey || keysBelongToControl(e)) return;
+  if (MOVE_KEYS.has(e.code)) {
+    if (nav.mode === 'orbit') setNavMode('fly');
+    nav.keys.add(e.code);
+    e.preventDefault();
+    return;
+  }
+  if (e.repeat) return;
+  if (e.code === 'Digit1') setNavMode('orbit');
+  else if (e.code === 'Digit2') setNavMode('fly');
+  else if (e.code === 'Digit3') setNavMode('walk');
+  else if (e.code === 'Escape') setNavMode('orbit');
+  else if (e.code === 'KeyH') setDataOn(!dataOn);
+  else if (e.code === 'KeyP') togglePlotLive();
+});
+window.addEventListener('keyup', e => {
+  if (e.key === 'Shift') nav.shift = false;
+  nav.keys.delete(e.code);
+});
+window.addEventListener('blur', () => { nav.keys.clear(); nav.shift = false; });
+
+setPaperRanges();
+setPaperColour(LS.paperCol);
+syncLens();
+setNavMode('orbit');
 
 playBtn.addEventListener('click', () => {
   tl.playing = !tl.playing;
@@ -2327,8 +3157,11 @@ function animate(now) {
     $('planet-range').value = planet.t;
     if (frameNo % 4 === 0) { updatePlanetStat(); drawPlanetSpark(); }
   }
+  updateNav(dt);
+  const mixStep = dt / 0.35, mixTarget = dataOn ? 1 : 0;
+  dataMix = mixTarget > dataMix ? Math.min(mixTarget, dataMix + mixStep) : Math.max(mixTarget, dataMix - mixStep);
   updateDisplacement(dt);
-  controls.update();
+  if (nav.mode === 'orbit') controls.update();
   const w = viewport.clientWidth, h = viewport.clientHeight;
   const splitOn = P.epochMode === 'split' && climate.normB && pointsB && P.climGain > 0;
   $('epoch-labels').style.display = splitOn && !plotLive ? 'flex' : 'none';
@@ -2350,7 +3183,20 @@ function animate(now) {
     if (points) points.visible = true;
     renderer.render(scene, camera);
   }
-  if (plotLive && frameNo % 2 === 0) drawPlotFrame();
+  updateFrame(!!splitOn);
+  let camMoved = false;
+  const cm = camera.matrixWorld.elements;
+  for (let i = 0; i < 16; i++) if (Math.abs(cm[i] - lastCamMatrix[i]) > 1e-6) { camMoved = true; lastCamMatrix[i] = cm[i]; }
+  if (camMoved) { lastCamMove = now; thumbDirty = true; thumbInputAt = now; }
+  const moving = now - lastCamMove < 250;
+  // shimmer, audio and the timeline keep the data moving, so while it's on the plot stays live
+  const needsPlot = plotDirty || moving || dataMix > 0 || CS.loopBusy();
+  let drew = false;
+  if (plotLive && needsPlot && now - lastPlot >= plotGap) { lastPlot = now; drawPlotFrame(moving); drew = true; }
+  if (!drew && !moving && !tl.playing && !planet.playing && n && $('styleSec').open) {
+    if (thumbDirty && now - thumbInputAt > 250) refreshThumbSnap();
+    else drawNextThumb(now);
+  }
 }
 
 resize();
@@ -2435,13 +3281,12 @@ if (location.search.includes('autotest')) {
     updateTimelineLabel(); drawSpark();
     console.log('AUTOTEST: climate loaded =', climate.loaded, 'var =', climate.varName, 'steps =', tl.len);
     setTimeout(() => {
-      for (const s of ['points','contour','rings','flow','rd','hairs','arrows','circles','suns','spirals','ascii']) {
-        P.plotStyle = s;
+      for (const s of [...HAUNTED_MODES.map(([m]) => 'h:' + m), ...LENS_MODES.map(([m]) => m)]) {
+        selectStyle(s);
         const svg = buildPlotSVG();
         console.log(`AUTOTEST plot ${s}: ${svg.length} chars, layers: ${(svg.match(/inkscape:groupmode/g) || []).length}`);
       }
-      P.plotStyle = (location.search.match(/style=(\w+)/) || [, 'contour'])[1];
-      $('plot-style').value = P.plotStyle;
+      selectStyle((location.search.match(/style=([\w:]+)/) || [, 'wave'])[1]);
       togglePlotLive(true);
       tl.playing = true;
     }, 1500);

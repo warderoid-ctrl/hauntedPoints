@@ -9,7 +9,8 @@ data-troubled object: the unwitting weight of the Stack made visible on nature.
 
 ## What it does
 - load a `.ply` point cloud (ASCII or binary, with or without colours)
-- true 3D preview (Three.js): orbit, pan, zoom, point size, density
+- true 3D preview (Three.js): orbit, or fly and walk through the scan with
+  WASD; point size, density
 - compute per-point edge strength (WASM core with JS fallback) so haunting
   concentrates on edges, veins and silhouettes
 - **audio dataset**: decode any audio file, extract the amplitude envelope and
@@ -32,9 +33,41 @@ data-troubled object: the unwitting weight of the Stack made visible on nature.
   provenance comments (scan, audio file, climate variable, timestamp) baked
   into the header
 
+## Moving through the scan
+The three buttons at the top are **Orbit**, **Fly** and **Walk** (keys `1` `2` `3`).
+Pressing WASD in Orbit switches to Fly.
+
+| Input | Does |
+| --- | --- |
+| W A S D or arrows | Move. Fly goes where you look; Walk stays level |
+| Q / E | Down / up |
+| Drag | Look around |
+| Right-drag | Slide sideways and up or down |
+| Scroll | Forward and back (in Orbit it pushes on through the cloud) |
+| Shift | Move faster |
+| Esc | Back to Orbit, around a point just ahead of you |
+| H | Data on / off |
+| P | Scan view / plot view |
+
+**Data on / off** shows the bare scan or the scan with every data layer, shimmer
+and tint acting on it. Exports follow the switch, so with data off you plot and
+export the untouched scan.
+
+## Plotting
+The lime frame is the page. Whatever is inside it in scan view lands in the same
+place on the paper, and that is what the SVG holds.
+
+Picture styles are PlotterLens's own filters and sliders. They work on a
+grayscale render of the view, and *Tone comes from* picks what sets that tone:
+point colours, depth, edge strength, data displacement or point density. Point
+styles plot the points themselves and how far the data moved them.
+
 ## Files
-- `index.html` — the whole app (open it in a browser; needs internet for the
+- `index.html` — the app (open it in a browser; needs internet for the
   Three.js CDN and the climate fetch)
+- `plotterlens-core.js` — PlotterLens's filters, generated: don't edit by hand.
+  After changing PlotterLens, run `python tools/sync_plotterlens.py` to pull
+  the new version across
 - `edge.ts` — AssemblyScript source of the WASM edge-detection core
 - `fetch_era5_cds.py` — optional: fetch ERA5 directly from the Copernicus
   Climate Data Store with your CDS API key and convert it to the JSON the app
