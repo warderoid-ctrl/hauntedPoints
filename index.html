@@ -97,6 +97,7 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 .grp[open] > summary::after { transform: rotate(-135deg); margin-top: 4px; }
 .grp[open] > summary { color: var(--ink); }
 .grp > .inner { padding-bottom: 14px; }
+.divider:first-of-type { margin-top: 4px; }
 .divider { margin: 18px 0 6px; font-size: 13px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
 
 .modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 8px; align-items: start; padding: 2px 6px 14px; }
@@ -241,7 +242,34 @@ select, input[type=text], input[type=number], input[type=date] {
     </div>
   </div>
 
-  <details class="grp" id="styleSec" open><summary><span>Style</span><span class="sum" id="styleSum"></span></summary><div class="sec inner">
+  <p class="divider">Scan</p>
+
+  <details class="grp" open><summary><span>Scan</span><span class="badge" id="engine-badge">engine</span></summary><div class="sec inner">
+    <div class="drop" id="drop">Drop a <strong>.ply</strong> anywhere, or click here<input id="ply-in" type="file" accept=".ply"></div>
+    <div class="btnrow"><button class="btn" id="load-demo" type="button">Demo leaf</button><button class="btn" id="flip-axis" type="button" title="Cycle which axis is up">Rotate up-axis</button></div>
+    <p class="stat" id="geo-stat">No point cloud loaded yet.</p>
+    <p class="label">Live scan <span class="badge">Kinect v2</span></p>
+    <div class="field"><label for="kin-url">Bridge URL</label><input id="kin-url" type="text" value="ws://localhost:8181"></div>
+    <div class="btnrow"><button class="btn" id="kin-connect" type="button">Connect</button><button class="btn" id="kin-freeze" type="button">Freeze frame</button></div>
+    <p class="stat" id="kin-stat">Run <b>kinect_bridge.py</b> on this machine (or with --fake to test), then connect. Freeze captures the current frame for full haunting, plotting and export.</p>
+  </div></details>
+
+  <details class="grp"><summary><span>Camera</span><span class="sum" id="navSum"></span></summary><div class="sec inner">
+    <p class="tips"><b>W A S D</b> move, <b>Q / E</b> down and up, drag to look, right-drag to slide, scroll to go forward. Hold <b>Shift</b> to go faster. <b>Esc</b> goes back to orbit.</p>
+    <div class="ctl"><label class="name" for="nav-speed">Move speed</label><output id="nav-speed-val">0.40</output><input id="nav-speed" type="range" min="0.02" max="2" value="0.4" step="0.01"></div>
+    <div class="ctl"><label class="name" for="nav-fov">Lens (field of view)</label><output id="nav-fov-val">50°</output><input id="nav-fov" type="range" min="15" max="110" value="50" step="1"></div>
+  </div></details>
+
+  <details class="grp"><summary><span>Points</span></summary><div class="sec inner">
+    <div class="ctl"><label class="name" for="psize">Point size</label><output id="psize-val">1.8</output><input id="psize" type="range" min="0.5" max="6" value="1.8" step="0.1"></div>
+    <div class="ctl"><label class="name" for="density">Density</label><output id="density-val">100</output><input id="density" type="range" min="5" max="100" value="100" step="1"></div>
+    <div class="field"><label for="color-mode">Colour</label><select id="color-mode"><option value="scan">scan colours</option><option value="edge">edge heat</option><option value="bone">bone white</option></select></div>
+    <div class="checks"><label><input type="checkbox" id="scan-on-paper"> Show the scan on the paper colour</label></div>
+  </div></details>
+
+  <p class="divider">Plot</p>
+
+  <details class="grp" id="styleSec"><summary><span>Style</span><span class="sum" id="styleSum"></span></summary><div class="sec inner">
     <div class="modes" id="modes" role="radiogroup" aria-label="Plot style"></div>
     <p class="label">Point styles</p>
     <div class="seg4 seg3" id="modes-haunted" role="radiogroup" aria-label="Point styles"></div>
@@ -251,13 +279,6 @@ select, input[type=text], input[type=number], input[type=date] {
   <details class="grp"><summary><span>Settings</span><span class="sum" id="mainSum"></span></summary><div class="sec inner">
     <div class="sec" id="lens-settings">
       <div class="rowhead"><span class="tips">Sliders for this style</span><button class="btn small" id="btn-reset" type="button">Reset sliders</button></div>
-      <div class="field"><label for="tone-src">Tone comes from</label><select id="tone-src">
-        <option value="seen" selected>what you see (point colours)</option>
-        <option value="depth">depth (near is dark)</option>
-        <option value="edge">edge strength</option>
-        <option value="data">data displacement</option>
-        <option value="density">point density</option>
-      </select></div>
       <div class="sec" id="techRow" hidden><div class="checks"><label><input type="checkbox" id="techBold"> Heavy outlines</label><label><input type="checkbox" id="techFrame"> Border frame</label></div></div>
       <div class="sec" id="duoRow" hidden><p class="tips">Pen 1 is the dark ink for the shadows, pen 2 the light ink for highlights and midtones. Pick the inks under Colours.</p></div>
       <div class="sec" id="snowRow" hidden>
@@ -294,19 +315,61 @@ select, input[type=text], input[type=number], input[type=date] {
     </div>
   </div></details>
 
+  <details class="grp" id="mapSec"><summary><span>Scan mapping</span><span class="sum" id="mapSum"></span></summary><div class="sec inner">
+    <p class="tips">A photo only has colour. The scan also knows how far each point is, which way its surface faces and how high it sits, so the filters can read those instead.</p>
+    <div class="sec" id="map-lens">
+      <div class="field"><label for="tone-src">Tone comes from</label><select id="tone-src">
+        <option value="seen" selected>colour (what you see)</option>
+        <option value="lit">colour, lit by the light below</option>
+        <option value="shaded">light on the surface</option>
+        <option value="depth">depth (near is dark)</option>
+        <option value="facing">facing (turning away is dark)</option>
+        <option value="height">height (high is dark)</option>
+        <option value="edge">edge strength</option>
+        <option value="data">data displacement</option>
+        <option value="density">point density</option>
+      </select></div>
+      <div class="sec" id="light-ctl">
+        <div class="ctl"><label class="name" for="light-az">Light from</label><output id="light-az-val">315°</output><input id="light-az" type="range" min="0" max="355" value="315" step="5"></div>
+        <div class="ctl"><label class="name" for="light-el">Light height</label><output id="light-el-val">40°</output><input id="light-el" type="range" min="0" max="90" value="40" step="5"></div>
+      </div>
+      <div class="ctl"><label class="name" for="depth-fade">Depth fade</label><output id="depth-fade-val">0%</output><input id="depth-fade" type="range" min="-100" max="100" value="0" step="5"></div>
+      <p class="tips">Raise it and the far side of the scan thins out to paper; lower it and the near side does.</p>
+      <div class="field"><label for="follow">Lines follow</label><select id="follow">
+        <option value="tone" selected>the picture (as in PlotterLens)</option>
+        <option value="depth">depth</option>
+        <option value="height">height</option>
+        <option value="facing">surface facing</option>
+        <option value="light">light on the surface</option>
+        <option value="data">data displacement</option>
+      </select></div>
+      <p class="tips">Sets which way lines run and what traced shapes trace. Contour draws slices through it; Flow, Engrave, Etch, Veil, Wave net and Blobs bend round it. Tone still sets how much ink goes down.</p>
+    </div>
+    <p class="label">Form lines</p>
+    <div class="checks"><label><input type="checkbox" id="form-sil"> Silhouette</label><label><input type="checkbox" id="form-turn"> Depth edges</label></div>
+    <div class="ctl"><label class="name" for="form-slices">Depth slices</label><output id="form-slices-val">0</output><input id="form-slices" type="range" min="0" max="40" value="0" step="1"></div>
+    <div class="ctl"><label class="name" for="form-height">Height lines</label><output id="form-height-val">0</output><input id="form-height" type="range" min="0" max="40" value="0" step="1"></div>
+    <div class="field"><label for="form-pen">Form lines pen</label><select id="form-pen"><option value="0" selected>pen 1</option><option value="1">pen 2</option><option value="2">pen 3</option><option value="3">pen 4</option></select></div>
+    <p class="tips">Drawn from the 3D points over any style, on their own pen, to keep the scan's shape: its outline, the edges where one thing stands in front of another, slices at equal distance from the camera and level lines like a map.</p>
+  </div></details>
+
   <details class="grp" id="lens-bg"><summary><span>Background</span><span class="sum" id="cullSum"></span></summary><div class="sec inner">
     <div class="seg4 seg5" role="radiogroup" aria-label="Background culling"><input class="sr" type="radio" name="cull" id="cu-off" value="off"><label for="cu-off">Off</label><input class="sr" type="radio" name="cull" id="cu-light" value="light"><label for="cu-light">Light</label><input class="sr" type="radio" name="cull" id="cu-dark" value="dark"><label for="cu-dark">Dark</label><input class="sr" type="radio" name="cull" id="cu-flat" value="flat"><label for="cu-flat">Flat</label><input class="sr" type="radio" name="cull" id="cu-radial" value="radial"><label for="cu-radial">Radial</label></div>
     <div class="sec" id="cullCtl" hidden><div class="sec" id="cullSliders"></div><p class="tips" id="cullTip"></p></div>
   </div></details>
 
   <details class="grp"><summary><span>Colours</span><span class="sum" id="colourSum"></span></summary><div class="sec inner">
-    <div class="seg4 seg5" role="radiogroup" aria-label="How the pens are coloured"><input class="sr" type="radio" name="colourMode" id="cm-none" value="none"><label for="cm-none">None</label><input class="sr" type="radio" name="colourMode" id="cm-layers" value="layers"><label for="cm-layers">Layers</label><input class="sr" type="radio" name="colourMode" id="cm-linear" value="linear"><label for="cm-linear">Linear</label><input class="sr" type="radio" name="colourMode" id="cm-radial" value="radial"><label for="cm-radial">Radial</label><input class="sr" type="radio" name="colourMode" id="cm-mix" value="mix"><label for="cm-mix">Multi</label></div>
+    <div class="seg4 seg3" role="radiogroup" aria-label="How the pens are coloured"><input class="sr" type="radio" name="colourMode" id="cm-none" value="none"><label for="cm-none">None</label><input class="sr" type="radio" name="colourMode" id="cm-layers" value="layers"><label for="cm-layers">Layers</label><input class="sr" type="radio" name="colourMode" id="cm-linear" value="linear"><label for="cm-linear">Linear</label><input class="sr" type="radio" name="colourMode" id="cm-radial" value="radial"><label for="cm-radial">Radial</label><input class="sr" type="radio" name="colourMode" id="cm-mix" value="mix"><label for="cm-mix">Multi</label><input class="sr" type="radio" name="colourMode" id="cm-depth" value="depth"><label for="cm-depth">Depth</label></div>
     <p class="tips" id="colourTip"></p>
     <div class="pens">
       <label class="pen"><input type="color" id="pen0" aria-label="Pen 1 colour"><span>Pen 1</span><small id="pname0"></small></label>
       <label class="pen"><input type="color" id="pen1" aria-label="Pen 2 colour"><span>Pen 2</span><small id="pname1"></small></label>
       <label class="pen"><input type="color" id="pen2" aria-label="Pen 3 colour"><span>Pen 3</span><small id="pname2"></small></label>
       <label class="pen"><input type="color" id="pen3" aria-label="Pen 4 colour"><span>Pen 4</span><small id="pname3"></small></label>
+    </div>
+    <div class="sec" id="depthBandCtl" hidden>
+      <div class="ctl"><label class="name" for="depth-bands">Depth bands</label><output id="depth-bands-val">3</output><input id="depth-bands" type="range" min="2" max="4" value="3" step="1"></div>
+      <div class="checks"><label><input type="checkbox" id="depth-rev"> Far first</label></div>
     </div>
     <div class="sec" id="bandCtl" hidden>
       <div class="sec" id="bandSliders"></div>
@@ -362,29 +425,6 @@ select, input[type=text], input[type=number], input[type=date] {
   </div></details>
 
   <p class="divider">Haunting</p>
-
-  <details class="grp"><summary><span>Scan</span><span class="badge" id="engine-badge">engine</span></summary><div class="sec inner">
-    <div class="drop" id="drop">Drop a <strong>.ply</strong> anywhere, or click here<input id="ply-in" type="file" accept=".ply"></div>
-    <div class="btnrow"><button class="btn" id="load-demo" type="button">Demo leaf</button><button class="btn" id="flip-axis" type="button" title="Cycle which axis is up">Rotate up-axis</button></div>
-    <p class="stat" id="geo-stat">No point cloud loaded yet.</p>
-    <p class="label">Live scan <span class="badge">Kinect v2</span></p>
-    <div class="field"><label for="kin-url">Bridge URL</label><input id="kin-url" type="text" value="ws://localhost:8181"></div>
-    <div class="btnrow"><button class="btn" id="kin-connect" type="button">Connect</button><button class="btn" id="kin-freeze" type="button">Freeze frame</button></div>
-    <p class="stat" id="kin-stat">Run <b>kinect_bridge.py</b> on this machine (or with --fake to test), then connect. Freeze captures the current frame for full haunting, plotting and export.</p>
-  </div></details>
-
-  <details class="grp"><summary><span>Camera</span><span class="sum" id="navSum"></span></summary><div class="sec inner">
-    <p class="tips"><b>W A S D</b> move, <b>Q / E</b> down and up, drag to look, right-drag to slide, scroll to go forward. Hold <b>Shift</b> to go faster. <b>Esc</b> goes back to orbit.</p>
-    <div class="ctl"><label class="name" for="nav-speed">Move speed</label><output id="nav-speed-val">0.40</output><input id="nav-speed" type="range" min="0.02" max="2" value="0.4" step="0.01"></div>
-    <div class="ctl"><label class="name" for="nav-fov">Lens (field of view)</label><output id="nav-fov-val">50°</output><input id="nav-fov" type="range" min="15" max="110" value="50" step="1"></div>
-  </div></details>
-
-  <details class="grp"><summary><span>Points</span></summary><div class="sec inner">
-    <div class="ctl"><label class="name" for="psize">Point size</label><output id="psize-val">1.8</output><input id="psize" type="range" min="0.5" max="6" value="1.8" step="0.1"></div>
-    <div class="ctl"><label class="name" for="density">Density</label><output id="density-val">100</output><input id="density" type="range" min="5" max="100" value="100" step="1"></div>
-    <div class="field"><label for="color-mode">Colour</label><select id="color-mode"><option value="scan">scan colours</option><option value="edge">edge heat</option><option value="bone">bone white</option></select></div>
-    <div class="checks"><label><input type="checkbox" id="scan-on-paper"> Show the scan on the paper colour</label></div>
-  </div></details>
 
   <details class="grp"><summary><span>Edge haunting</span></summary><div class="sec inner">
     <div class="field"><label for="edge-method">Method</label><select id="edge-method"><option value="0">curvature</option><option value="1">normal deviation</option><option value="2">sparse density</option><option value="3">combined</option></select></div>
@@ -453,6 +493,7 @@ select, input[type=text], input[type=number], input[type=date] {
     <div class="rowhead"><button id="planet-play" type="button" aria-label="Play planetary timeline">&#9654;</button><input id="planet-range" type="range" min="0" max="0" value="0" step="0.25" disabled aria-label="Planetary timeline position" style="flex:1;accent-color:var(--accent)"></div>
     <p class="stat" id="planet-stat">No planetary data yet. NOAA gives the gas itself (CO&#8322; 1979&ndash;, CH&#8324; 1983&ndash;, N&#8322;O 2001&ndash;, SF&#8326; 1997&ndash;); OWID gives what was emitted, per country, back to 1750. In deep time the series scrubs on its own slider; bound to the site timeline it is resampled onto the ERA5 hours.</p>
   </div></details>
+
 </section>
 
 <script src="plotterlens-core.js"></script>
@@ -481,7 +522,8 @@ const P = {
   planetGain: 0, planetBind: 'deep', planetScale: 'linear', planetBeh: 'weight',
   planetMapping: 'uniform', planetMap: 'z', planetWindow: 60, planetTint: false,
   density: 100, colorMode: 'scan', psize: 1.8,
-  plotStyle: 'wave', toneSrc: 'seen', plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210,
+  plotStyle: 'wave', toneSrc: 'seen', lightAz: 315, lightEl: 40, depthFade: 0, follow: 'tone',
+  formSil: false, formTurn: false, formSlices: 0, formHeight: 0, formPen: 0, depthPens: false, depthBands: 3, depthRev: false, plotDetail: 40, plotGlyph: 2, plotAxis: 0, pageW: 297, pageH: 210,
   plotPens: 3, plotLayerBy: 'data', seqFrames: 60, seqFps: 12
 };
 
@@ -2067,7 +2109,11 @@ function projectView(d, stride = 1) {
   const inv = camera.matrixWorldInverse, proj = camera.projectionMatrix, near = camera.near;
   const vis = new Int32Array(n), nd = new Float32Array(n * 2), nb = new Float32Array(n * 2);
   const depth = new Float32Array(n), dist = new Float32Array(n), mag = new Float32Array(n);
-  const x1 = d.mx + d.dw, y1 = d.my + d.dh;
+  const facing = new Float32Array(n), shade = new Float32Array(n), hgt = new Float32Array(n);
+  const x1 = d.mx + d.dw, y1 = d.my + d.dh, e = inv.elements;
+  // light direction in camera space: the angle runs round the picture (0 = from the top), height lifts it towards you
+  const az = P.lightAz * Math.PI / 180, el = P.lightEl * Math.PI / 180;
+  const lx = Math.cos(el) * Math.sin(az), ly = Math.cos(el) * Math.cos(az), lz = Math.sin(el);
   const pageX = ndc => ((ndc * 0.5 + 0.5) * f.vw - f.px) / f.s;
   const pageY = ndc => ((-ndc * 0.5 + 0.5) * f.vh - f.py) / f.s;
   let m = 0, mmax = 1e-9;
@@ -2076,10 +2122,20 @@ function projectView(d, stride = 1) {
     v.set(displaced[i*3], displaced[i*3+1], displaced[i*3+2]).applyMatrix4(inv);
     const z = -v.z;
     if (z <= near) continue;                 // behind the camera: would otherwise project mirrored
+    const vx = v.x, vy = v.y, vz = v.z;
     v.applyMatrix4(proj);
     const X = pageX(v.x), Y = pageY(v.y);
     if (X < d.mx || X > x1 || Y < d.my || Y > y1) continue;
-    vis[m] = i; nd[m*2] = X; nd[m*2+1] = Y; depth[m] = v.z; dist[m] = z;
+    vis[m] = i; nd[m*2] = X; nd[m*2+1] = Y; depth[m] = v.z; dist[m] = z; hgt[m] = displaced[i*3+1];
+    const nw = normals[i];
+    if (nw) { // scan normals are unsigned: turn each to face the camera, then compare with the view and the light
+      let nx = e[0]*nw[0] + e[4]*nw[1] + e[8]*nw[2], ny = e[1]*nw[0] + e[5]*nw[1] + e[9]*nw[2], nz = e[2]*nw[0] + e[6]*nw[1] + e[10]*nw[2];
+      const pl = Math.hypot(vx, vy, vz) || 1;
+      let f = -(nx * vx + ny * vy + nz * vz) / pl;
+      if (f < 0) { f = -f; nx = -nx; ny = -ny; nz = -nz; }
+      facing[m] = f;
+      shade[m] = Math.max(0, nx * lx + ny * ly + nz * lz);
+    } else { facing[m] = 0.5; shade[m] = 0.5; }
     v.set(basePts[i*3], basePts[i*3+1], basePts[i*3+2]).applyMatrix4(inv);
     if (-v.z > near) { v.applyMatrix4(proj); nb[m*2] = pageX(v.x); nb[m*2+1] = pageY(v.y); }
     else { nb[m*2] = X; nb[m*2+1] = Y; }
@@ -2089,31 +2145,24 @@ function projectView(d, stride = 1) {
   }
   for (let k = 0; k < m; k++) mag[k] /= mmax;
   return { frame: f, count: m, vis: vis.subarray(0, m), nd: nd.subarray(0, m*2), nb: nb.subarray(0, m*2),
-           depth: depth.subarray(0, m), dist: dist.subarray(0, m), mag: mag.subarray(0, m) };
+           depth: depth.subarray(0, m), dist: dist.subarray(0, m), mag: mag.subarray(0, m),
+           facing: facing.subarray(0, m), shade: shade.subarray(0, m), hgt: hgt.subarray(0, m) };
 }
 
-// The picture PlotterLens's filters read: the view inside the frame, as grayscale.
-// Points are splatted nearest-first, then gaps between them are filled; where
-// there are no points at all the field stays white, so no ink is laid there.
+// The picture PlotterLens's filters read, built from the view inside the frame.
+// Points are splatted nearest-first, so each cell belongs to the point you can see
+// there. From that one pass come the tone (how much ink), the structure field
+// (which way lines run) and the 3D fields the form lines are traced from.
 function rasterField(view, d, res) {
   let w = res, h = Math.round(w * d.dh / d.dw);
   const maxH = Math.round(res * 1.45);
   if (h > maxH) { h = maxH; w = Math.round(h * d.dw / d.dh); }
   w = Math.max(w, 8); h = Math.max(h, 8);
-  const N = w * h, tone = new Float32Array(N), mask = new Float32Array(N), zb = new Float32Array(N).fill(Infinity);
+  const N = w * h, win = new Int32Array(N).fill(-1), zb = new Float32Array(N).fill(Infinity);
   const cellPerPx = w / (d.dw * view.frame.s);
   const sizeK = P.psize * 0.004 * view.frame.vh * 0.5;   // same size law as the point shader
-  const col = colAttr ? colAttr.array : null;
-  let dn = Infinity, df = -Infinity;
-  for (let k = 0; k < view.count; k++) { if (view.dist[k] < dn) dn = view.dist[k]; if (view.dist[k] > df) df = view.dist[k]; }
-  const dSpan = df - dn || 1, src = P.toneSrc;
   for (let k = 0; k < view.count; k++) {
-    const i = view.vis[k], z = view.dist[k];
-    let t = 0;
-    if (src === 'depth') t = (z - dn) / dSpan;
-    else if (src === 'edge') t = 1 - (edgeScores[i] ?? 0);
-    else if (src === 'data') t = 1 - view.mag[k];
-    else if (src === 'seen' && col) t = 0.299 * col[i*3] + 0.587 * col[i*3+1] + 0.114 * col[i*3+2];
+    const z = view.dist[k];
     const x = (view.nd[k*2] - d.mx) / d.dw * w, y = (view.nd[k*2+1] - d.my) / d.dh * h;
     const r = Math.max(0.5, Math.min(6, 0.5 * Math.min(MAX_POINT_PX, sizeK / z) * cellPerPx));
     const x0 = Math.max(0, Math.floor(x - r)), x1 = Math.min(w - 1, Math.floor(x + r));
@@ -2122,26 +2171,214 @@ function rasterField(view, d, res) {
       const dx = xx + 0.5 - x, dy = yy + 0.5 - y;
       if (r > 1 && dx*dx + dy*dy > r*r) continue;
       const c = yy * w + xx;
-      if (z < zb[c]) { zb[c] = z; tone[c] = t; mask[c] = 1; }
+      if (z < zb[c]) { zb[c] = z; win[c] = k; }
     }
   }
+  const range = arr => { let a = Infinity, b = -Infinity; for (let k = 0; k < view.count; k++) { if (arr[k] < a) a = arr[k]; if (arr[k] > b) b = arr[k]; } return [a, (b - a) || 1]; };
+  const [dn, dSpan] = range(view.dist), [hn, hSpan] = range(view.hgt);
+  const col = colAttr ? colAttr.array : null;
+  const lum = k => { const i = view.vis[k]; return col ? 0.299 * col[i*3] + 0.587 * col[i*3+1] + 0.114 * col[i*3+2] : 0.5; };
+  const CH = {   // per point, 0..1
+    seen: lum,
+    depth: k => (view.dist[k] - dn) / dSpan,          // 0 near .. 1 far
+    height: k => (view.hgt[k] - hn) / hSpan,          // 0 low .. 1 high
+    facing: k => view.facing[k],                      // 1 square on .. 0 edge on
+    light: k => view.shade[k],
+    edge: k => edgeScores[view.vis[k]] ?? 0,
+    data: k => view.mag[k]
+  };
+  const mask = new Float32Array(N);
+  for (let c = 0; c < N; c++) if (win[c] >= 0) mask[c] = 1;
+  const splat = f => { const A = new Float32Array(N); for (let c = 0; c < N; c++) if (win[c] >= 0) A[c] = f(win[c]); return A; };
   const blur = Math.max(1, Math.round(w / 130));
-  const T = CS.boxBlur(tone, w, h, blur), M = CS.boxBlur(mask, w, h, blur);
-  const gray = new Float32Array(N);
-  for (let c = 0; c < N; c++) {
-    const m = M[c];
-    if (src === 'density') { gray[c] = 1 - Math.min(1, Math.sqrt(m) * 1.15); continue; }
-    if (m < 1e-3) { gray[c] = 1; continue; }
-    const a = Math.min(1, Math.max(0, (m - 0.03) / 0.17));
-    gray[c] = 1 + (T[c] / m - 1) * a * a * (3 - 2 * a);
+  const M = CS.boxBlur(mask, w, h, blur);
+  // smooth a channel and carry it on past the edge of the scan, so it has no false cliff there
+  const filled = A => {
+    const out = new Float32Array(N), done = new Uint8Array(N);
+    let left = N;
+    for (const r of [blur, blur * 4, blur * 16, blur * 64]) {
+      const T = CS.boxBlur(A, w, h, r), Mr = r === blur ? M : CS.boxBlur(mask, w, h, r), thr = r === blur ? 0.15 : 0.01;
+      for (let c = 0; c < N; c++) if (!done[c] && Mr[c] > thr) { out[c] = T[c] / Mr[c]; done[c] = 1; left--; }
+      if (!left) break;
+    }
+    if (left) { let sum = 0, cnt = 0; for (let c = 0; c < N; c++) if (done[c]) { sum += out[c]; cnt++; } for (let c = 0; c < N; c++) if (!done[c]) out[c] = cnt ? sum / cnt : 0.5; }
+    return out;
+  };
+  const cache = {};
+  const field = name => cache[name] || (cache[name] = filled(splat(CH[name])));
+  let silhouette = null;
+  const sil = () => silhouette || (silhouette = CS.boxBlur(mask, w, h, Math.max(2, Math.round(w / 70))));
+
+  // tone: 1 is bare paper, 0 full ink
+  const src = P.toneSrc, gray = new Float32Array(N);
+  if (src === 'density') for (let c = 0; c < N; c++) gray[c] = 1 - Math.min(1, Math.sqrt(M[c]) * 1.15);
+  else {
+    const tone = {
+      seen: lum, lit: k => lum(k) * (0.3 + 0.7 * CH.light(k)), shaded: CH.light, depth: CH.depth, facing: CH.facing,
+      height: k => 1 - CH.height(k), edge: k => 1 - CH.edge(k), data: k => 1 - CH.data(k)
+    }[src] || lum;
+    const T = CS.boxBlur(splat(tone), w, h, blur);
+    for (let c = 0; c < N; c++) {
+      const m = M[c];
+      if (m < 1e-3) { gray[c] = 1; continue; }
+      const a = Math.min(1, Math.max(0, (m - 0.03) / 0.17));
+      gray[c] = 1 + (T[c] / m - 1) * a * a * (3 - 2 * a);
+    }
   }
-  return { gray, w, h };
+  if (P.depthFade) { // atmospheric perspective: one side of the scan thins out towards bare paper
+    const D = field('depth'), f = Math.abs(P.depthFade) / 100;
+    for (let c = 0; c < N; c++) { const t = P.depthFade > 0 ? D[c] : 1 - D[c]; gray[c] += (1 - gray[c]) * f * t; }
+  }
+
+  // structure: high values read as dark, as PlotterLens's own tone field does
+  let shape = null;
+  if (P.follow !== 'tone') {
+    const F = P.follow === 'depth' ? field('depth') : P.follow === 'height' ? field('height') : P.follow === 'facing' ? field('facing')
+            : P.follow === 'light' ? field('light') : field('data');
+    const invert = P.follow === 'depth' || P.follow === 'facing' || P.follow === 'light';
+    let lo = Infinity, hi = -Infinity;
+    for (let c = 0; c < N; c++) if (M[c] > 0.2) { if (F[c] < lo) lo = F[c]; if (F[c] > hi) hi = F[c]; }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    const span = (hi - lo) || 1;
+    shape = new Float32Array(N);
+    const S0 = sil();
+    for (let c = 0; c < N; c++) {
+      let t = Math.min(1, Math.max(0, (F[c] - lo) / span));
+      if (invert) t = 1 - t;
+      const a = Math.min(1, Math.max(0, (S0[c] - 0.15) / 0.3));
+      shape[c] = t * a * a * (3 - 2 * a);   // off the scan it settles to 0: far, low, flat
+    }
+  }
+  return { gray, w, h, shape, M, field, sil };
 }
+
+// Lines traced from the 3D fields, laid over any style on their own pen.
+function formLines(fld, d) {
+  const out = [], pen = P.formPen, { w, h } = fld;
+  if (!(P.formSil || P.formTurn || P.formSlices || P.formHeight)) return out;
+  const S0 = fld.sil(), SIL = 0.3;
+  const at = (F, x, y) => F[Math.min(h - 1, Math.max(0, Math.floor((y - d.my) / d.dh * h))) * w + Math.min(w - 1, Math.max(0, Math.floor((x - d.mx) / d.dw * w)))];
+  const minLen = Math.max(2, Math.hypot(d.dw, d.dh) * 0.006);
+  const push = pts => {
+    let len = 0;
+    for (let i = 2; i < pts.length; i += 2) len += Math.hypot(pts[i] - pts[i-2], pts[i+1] - pts[i-1]);
+    if (len >= minLen) out.push({ layer: pen, pts });
+  };
+  const insideOnly = pts => { // keep the runs that lie on the scan, not on the fill carried past its edge
+    let cur = [];
+    for (let i = 0; i < pts.length; i += 2) {
+      if (at(S0, pts[i], pts[i+1]) > SIL) cur.push(pts[i], pts[i+1]);
+      else { if (cur.length >= 4) push(cur); cur = []; }
+    }
+    if (cur.length >= 4) push(cur);
+  };
+  const levels = k => Array.from({ length: k }, (_, i) => (i + 1) / (k + 1));
+  if (P.formSil) CS.iso(S0, w, h, [SIL], d)[0].forEach(push);
+  if (P.formTurn) depthEdges(fld.field('depth'), w, h, d).forEach(insideOnly);
+  for (const [name, k] of [['depth', P.formSlices], ['height', P.formHeight]]) {
+    if (!k) continue;
+    const F = fld.field(name);
+    let lo = Infinity, hi = -Infinity;
+    for (let c = 0; c < F.length; c++) if (S0[c] > SIL) { if (F[c] < lo) lo = F[c]; if (F[c] > hi) hi = F[c]; }
+    if (!isFinite(lo)) continue;
+    const lv = levels(k).map(t => lo + t * (hi - lo));
+    CS.iso(F, w, h, lv, d).forEach(lines => lines.forEach(insideOnly));
+  }
+  return out;
+}
+
+// Occlusion edges: where depth jumps, something stands in front of something else.
+// Gradient of log depth, thinned to one cell (non-maximum suppression), then walked
+// into polylines and lightly smoothed so the pixel steps don't show.
+function depthEdges(D, w, h, d) {
+  const N = w * h, L = new Float32Array(N), G = new Float32Array(N), A = new Uint8Array(N);
+  for (let c = 0; c < N; c++) L[c] = Math.log(0.05 + D[c]);
+  for (let j = 1; j < h - 1; j++) for (let i = 1; i < w - 1; i++) {
+    const c = j * w + i, gx = (L[c + 1] - L[c - 1]) / 2, gy = (L[c + w] - L[c - w]) / 2;
+    G[c] = Math.hypot(gx, gy);
+    const a = Math.atan2(gy, gx) * 4 / Math.PI;               // gradient direction in eighths
+    A[c] = ((Math.round(a) % 4) + 4) % 4;                     // 0 across, 1 diagonal, 2 down, 3 other diagonal
+  }
+  const thr = 0.03 * 320 / w;                                 // a jump of a few percent of depth per cell, whatever the resolution
+  const OFF = [[1, 0], [1, 1], [0, 1], [-1, 1]];
+  const E = new Uint8Array(N);
+  for (let j = 1; j < h - 1; j++) for (let i = 1; i < w - 1; i++) {
+    const c = j * w + i, g = G[c];
+    if (g < thr) continue;
+    const [ox, oy] = OFF[A[c]];
+    if (g >= G[c + oy * w + ox] && g > G[c - oy * w - ox]) E[c] = 1;
+  }
+  const NB = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  const walk = (c, chain) => {
+    for (;;) {
+      const i = c % w, j = (c / w) | 0;
+      let next = -1;
+      for (const [dx, dy] of NB) {
+        const x = i + dx, y = j + dy;
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const q = y * w + x;
+        if (E[q] === 1) { next = q; break; }
+      }
+      if (next < 0) return;
+      E[next] = 2; chain.push(next); c = next;
+    }
+  };
+  const toMm = c => [d.mx + ((c % w) + 0.5) / w * d.dw, d.my + (((c / w) | 0) + 0.5) / h * d.dh];
+  const out = [];
+  for (let c = 0; c < N; c++) {
+    if (E[c] !== 1) continue;
+    E[c] = 2;
+    const fwd = [c], back = [];
+    walk(c, fwd); walk(c, back);
+    const chain = back.reverse().concat(fwd);
+    if (chain.length < 4) continue;
+    const P2 = chain.map(toMm), pts = [];
+    for (let k = 0; k < P2.length; k++) { // three-tap average keeps the ends where they are
+      const a = P2[Math.max(0, k - 1)], b = P2[k], e = P2[Math.min(P2.length - 1, k + 1)];
+      pts.push((a[0] + 2 * b[0] + e[0]) / 4, (a[1] + 2 * b[1] + e[1]) / 4);
+    }
+    out.push(pts);
+  }
+  return out;
+}
+
+// Give each stretch of a stroke the pen of the band it passes through, cutting at band edges.
+function splitByPen(list, d, penAt, step) {
+  const out = [];
+  for (const p of list) {
+    const q = p.pts;
+    if (q.length < 4) { out.push(p); continue; }
+    let cur = [q[0], q[1]], curP = penAt(q[0], q[1]);
+    for (let i = 2; i < q.length; i += 2) {
+      const ax = q[i-2], ay = q[i-1], bx = q[i], by = q[i+1], m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step));
+      for (let k = 1; k < m; k++) {
+        const x = ax + (bx - ax) * k / m, y = ay + (by - ay) * k / m, pn = penAt(x, y);
+        if (pn !== curP) { cur.push(x, y); if (cur.length >= 4) out.push({ layer: curP, pts: cur }); cur = [x, y]; curP = pn; }
+      }
+      const pn = penAt(bx, by);
+      if (pn !== curP) { cur.push(bx, by); if (cur.length >= 4) out.push({ layer: curP, pts: cur }); cur = [bx, by]; curP = pn; }
+      else cur.push(bx, by);
+    }
+    if (cur.length >= 4) out.push({ layer: curP, pts: cur });
+  }
+  return out;
+}
+function depthPens(list, d, fld) {
+  const D = fld.field('depth'), { w, h } = fld, N = P.depthBands;
+  const penAt = (x, y) => {
+    const t = D[Math.min(h - 1, Math.max(0, Math.floor((y - d.my) / d.dh * h))) * w + Math.min(w - 1, Math.max(0, Math.floor((x - d.mx) / d.dw * w)))];
+    const b = Math.min(N - 1, Math.floor((P.depthRev ? 1 - t : t) * N));
+    return b < 0 ? 0 : b;
+  };
+  return splitByPen(list, d, penAt, Math.max(0.25, d.dw / w * 0.7));
+}
+const formOn = () => P.formSil || P.formTurn || P.formSlices > 0 || P.formHeight > 0;
 
 function previewStride() { return Math.max(1, Math.ceil(n / PLOT_PREVIEW_POINTS)); }
 
 function plotMeta() {
-  const meta = [`source scan: ${sourceName}`, `style: ${P.plotStyle}`, `data: ${dataOn ? 'on' : 'off'}`];
+  const meta = [`source scan: ${sourceName}`, `style: ${P.plotStyle}`, `data: ${dataOn ? 'on' : 'off'}`,
+                `tone: ${P.toneSrc}`, `lines follow: ${P.follow}`];
   if (audio.loaded) meta.push(`audio: ${audio.name} (${P.audioBand})`);
   if (climate.loaded) meta.push(`climate: ${climate.source} · ${climate.varName} @ ${climate.times[Math.max(0, Math.min(tl.len-1, Math.round(tl.t)))]} UTC`);
   if (planetActive()) meta.push(`planetary: ${planet.source} · ${planet.label} = ${fmtBig(planetRawNow())} ${planet.unit} @ ${planetMomentLabel()} (${P.planetBind}, ${P.planetBeh}, gain ${P.planetGain})`);
@@ -2154,7 +2391,9 @@ function buildPlotLayers(opts = {}) {
   const view = projectView(d, opts.final ? 1 : previewStride());
   if (!P.plotStyle.startsWith('h:')) {
     const fld = rasterField(view, d, opts.final ? 480 : opts.moving ? 180 : 320);
-    const polys = CS.run(fld.gray, fld.w, fld.h, d, { live: !opts.final, settle: opts.final ? 600 : 0 });
+    let polys = CS.run(fld.gray, fld.w, fld.h, d, { live: !opts.final, settle: opts.final ? 600 : 0, shape: fld.shape });
+    if (P.depthPens) polys = depthPens(polys, d, fld);
+    polys = polys.concat(formLines(fld, d));
     return { W, H, d, polys, paths: [], texts: [], meta: plotMeta() };
   }
   const style = P.plotStyle.slice(2), layers = P.plotPens;
@@ -2407,6 +2646,15 @@ function buildPlotLayers(opts = {}) {
     }
   }
 
+  if (formOn()) { // the point styles can carry form lines too
+    const fld = rasterField(view, d, opts.final ? 480 : 320), f2 = v => +v.toFixed(2);
+    for (const p of formLines(fld, d)) {
+      while (layerPaths.length <= p.layer) { layerPaths.push([]); layerTexts.push([]); }
+      let s2 = `M${f2(p.pts[0])} ${f2(p.pts[1])}`;
+      for (let i = 2; i < p.pts.length; i += 2) s2 += ` L${f2(p.pts[i])} ${f2(p.pts[i+1])}`;
+      layerPaths[p.layer].push(s2);
+    }
+  }
   return { W, H, d, polys: null, paths: layerPaths, texts: layerTexts, meta: plotMeta() };
 }
 
@@ -2582,8 +2830,8 @@ function drawNextThumb(now) {
   if (!pick) return;
   lastThumb = now;
   pick.stamp = thumbStamp;
-  const { gray, w, h, d } = thumbSnap;
-  const out = CS.thumb(pick.mode, gray, w, h, d);
+  const { gray, w, h, d, shape } = thumbSnap;
+  const out = CS.thumb(pick.mode, gray, w, h, d, shape);
   const { cv, ctx } = pick, W = cv.width, H = cv.height;
   const k = Math.max(W / d.W, H / d.H) * 1.08, ox = (W - d.W * k) / 2, oy = (H - d.H * k) / 2;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2610,7 +2858,7 @@ function drawNextThumb(now) {
 function refreshThumbSnap() {
   const d = plotDims();
   const fld = rasterField(projectView(d, previewStride()), d, 200);
-  thumbSnap = { gray: fld.gray, w: fld.w, h: fld.h, d };
+  thumbSnap = { gray: fld.gray, w: fld.w, h: fld.h, d, shape: fld.shape };
   thumbStamp++;
   thumbDirty = false;
 }
@@ -2978,7 +3226,8 @@ document.querySelectorAll('input[name="cull"]').forEach(r => {
 });
 document.querySelectorAll('input[name="colourMode"]').forEach(r => r.addEventListener('change', () => {
   if (!r.checked) return;
-  LS.showColours = r.value === 'layers';
+  P.depthPens = r.value === 'depth';
+  LS.showColours = r.value === 'layers' || P.depthPens;
   LS.bands = ['linear', 'radial', 'mix'].includes(r.value) ? r.value : 'off';
   syncLens();
 }));
@@ -2990,7 +3239,7 @@ $('btnShuffle').addEventListener('click', () => { LS.mixSeed = 1 + Math.floor(Ma
 $('btnResetColours').addEventListener('click', () => {
   LS.pens = CS.DEFAULTS.pens.slice();
   for (let i = 0; i < 4; i++) $('pen' + i).value = LS.pens[i];
-  LS.showColours = false; LS.bands = 'off'; LS.paperSvg = false; $('paperSvg').checked = false;
+  LS.showColours = false; LS.bands = 'off'; LS.paperSvg = false; P.depthPens = false; $('paperSvg').checked = false;
   setPaperColour(CS.DEFAULTS.paperCol);
   syncLens();
 });
@@ -3047,7 +3296,17 @@ $('paperSwatches').insertAdjacentHTML('beforeend', '<label class="custom" title=
 $('paper-custom').value = LS.paperCol;
 $('paper-custom').addEventListener('input', e => setPaperColour(e.target.value));
 $('scan-on-paper').addEventListener('change', applySceneBackground);
-$('tone-src').addEventListener('change', e => { P.toneSrc = e.target.value; });
+$('tone-src').addEventListener('change', e => { P.toneSrc = e.target.value; syncLens(); });
+$('follow').addEventListener('change', e => { P.follow = e.target.value; syncLens(); });
+bindRange('light-az', 'lightAz', v => v + '°');
+bindRange('light-el', 'lightEl', v => v + '°');
+bindRange('depth-fade', 'depthFade', v => (v > 0 ? '+' : '') + v + '%', () => syncLens());
+bindRange('form-slices', 'formSlices', null, () => syncLens());
+bindRange('form-height', 'formHeight', null, () => syncLens());
+bindRange('depth-bands', 'depthBands');
+$('form-pen').addEventListener('change', e => { P.formPen = +e.target.value; });
+for (const [id, key] of [['form-sil', 'formSil'], ['form-turn', 'formTurn'], ['depth-rev', 'depthRev']])
+  $(id).addEventListener('change', e => { P[key] = e.target.checked; syncLens(); });
 
 /* focal point */
 document.querySelectorAll('input[name="repel"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { LS.repel = r.value === '1'; syncLens(); } }));
@@ -3097,10 +3356,17 @@ function syncLens() {
     const inp = $('pl-' + sp.id);
     if (+inp.value !== LS[sp.id]) inp.value = LS[sp.id];
   }
-  const colourMode = LS.bands !== 'off' ? LS.bands : LS.showColours ? 'layers' : 'none';
+  const colourMode = P.depthPens ? 'depth' : LS.bands !== 'off' ? LS.bands : LS.showColours ? 'layers' : 'none';
   document.querySelectorAll('input[name="colourMode"]').forEach(r => { r.checked = r.value === colourMode; });
-  $('colourTip').textContent = CS.COLOUR_TIPS[colourMode];
-  $('colourSum').textContent = { none: 'None', layers: 'Layers', mix: 'Multi', linear: 'Linear', radial: 'Radial' }[colourMode];
+  $('colourTip').textContent = colourMode === 'depth'
+    ? 'One pen per band of distance from the camera, pen 1 nearest. Strokes change pen where they cross into the next band. Form lines keep their own pen.'
+    : CS.COLOUR_TIPS[colourMode];
+  $('colourSum').textContent = { none: 'None', layers: 'Layers', mix: 'Multi', linear: 'Linear', radial: 'Radial', depth: 'Depth · ' + P.depthBands }[colourMode];
+  $('depthBandCtl').hidden = colourMode !== 'depth';
+  $('map-lens').hidden = haunted;
+  $('light-ctl').hidden = !(['lit', 'shaded'].includes(P.toneSrc) || P.follow === 'light');
+  const forms = [P.formSil && 'outline', P.formTurn && 'depth edges', P.formSlices && P.formSlices + ' slices', P.formHeight && P.formHeight + ' levels'].filter(Boolean);
+  $('mapSum').textContent = haunted ? (forms.join(', ') || 'Off') : ($('tone-src').selectedOptions[0].textContent.split(' (')[0] + (forms.length ? ' + form' : ''));
   $('bandRevRow').hidden = colourMode === 'mix';
   $('mixRow').hidden = colourMode !== 'mix';
   for (let i = 0; i < 4; i++) $('pname' + i).textContent = CS.colourName(LS.pens[i]);

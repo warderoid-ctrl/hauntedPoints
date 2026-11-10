@@ -57,10 +57,26 @@ export the untouched scan.
 The lime frame is the page. Whatever is inside it in scan view lands in the same
 place on the paper, and that is what the SVG holds.
 
-Picture styles are PlotterLens's own filters and sliders. They work on a
-grayscale render of the view, and *Tone comes from* picks what sets that tone:
-point colours, depth, edge strength, data displacement or point density. Point
-styles plot the points themselves and how far the data moved them.
+The panel runs in working order: **Scan** (load, camera, points), then **Plot**
+(style, scan mapping, colours, paper, export), then **Haunting** (the data).
+
+Picture styles are PlotterLens's own filters and sliders. Point styles plot the
+points themselves and how far the data moved them.
+
+**Scan mapping** feeds the filters what a photo can't give them:
+
+- *Tone comes from* sets how much ink goes where: colour, colour lit by a
+  light you place, light on the surface normals alone, depth, how squarely the
+  surface faces you, height, edge strength, data displacement or point density.
+- *Depth fade* thins the far (or near) side of the scan out to bare paper.
+- *Lines follow* sets which way lines run and what traced shapes trace: depth,
+  height, surface facing, light or data, instead of the picture. Contour then
+  draws real depth slices, and Engrave hatches around the 3D form.
+- *Form lines* go over any style, picture or point, on a pen of their own:
+  silhouette, depth edges (where one thing stands in front of another), depth
+  slices and height lines.
+
+*Colours → Depth* gives each band of distance from the camera its own pen.
 
 ## Files
 - `index.html` — the app (open it in a browser; needs internet for the

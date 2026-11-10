@@ -50,24 +50,29 @@ WRAP_TAIL = """\
   S.pens = DEFAULTS.pens.slice();
   const generate = (mode) => applyBands(applyJitter(applyClip((GEN[mode] || genWave)(DM), DM)), DM);
 
+  // Styles take their line directions and traced shapes from fields().B, a blurred copy of
+  // the tone. A host that knows more than a photo can hand over its own structure field
+  // (w*h, 0..1) so lines follow that instead, while the tone still sets how much ink goes down.
+  const structure = (shape) => (shape ? { B: boxBlur(boxBlur(shape, gw, gh, 1), gw, gh, 1) } : null);
+
   // gray: Float32Array w*h, 0 black .. 1 white. d: {W,H,mx,my,dw,dh} in mm.
   // Returns [{layer, pts:[x0,y0,x1,y1,...]}] in mm. settle (ms) lets Loop finish growing.
   function run(g, w, h, d, opts) {
     opts = opts || {};
     gray = g; gw = w; gh = h; DM = d; live = !!opts.live; frozen = false;
     computeDark();
-    fieldCache = null;
+    fieldCache = structure(opts.shape);
     let t0 = performance.now(), out = generate(S.mode);
-    if (opts.settle) while (loopAnim && performance.now() - t0 < opts.settle) { loopAnim = false; out = generate(S.mode); }
+    if (opts.settle) while (loopAnim && performance.now() - t0 < opts.settle) { loopAnim = false; fieldCache = structure(opts.shape); out = generate(S.mode); }
     return out;
   }
   // The style's own coarse preview of a picture, as the PlotterLens carousel draws it.
-  function thumb(mode, g, w, h, d) {
+  function thumb(mode, g, w, h, d, shape) {
     const keep = { mode: S.mode, spacing: S.spacing, levels: S.levels };
     let out = [];
     gray = g; gw = w; gh = h; DM = d; live = false; frozen = false;
     computeDark();
-    fieldCache = null;
+    fieldCache = structure(shape);
     try {
       S.mode = mode; S.spacing = keep.spacing * 2.2; S.levels = Math.min(keep.levels, 6);
       thumbRun = true;
@@ -79,6 +84,8 @@ WRAP_TAIL = """\
   return {
     S, DEFAULTS, SLIDERS, SP, fmt, SIZES, HIDDEN_MODES, CULL_DEF, CULL_TIPS, COLOUR_TIPS,
     run, thumb, penColour, darkPaper, colourName, scaleOf, boxBlur,
+    // contour lines of any w*h field, chained into polylines in page mm
+    iso: (F, w, h, levels, d) => { DM = d; return isoMulti(F, w, h, levels); },
     loopBusy: () => loopAnim
   };
 """
