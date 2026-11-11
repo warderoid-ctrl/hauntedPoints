@@ -489,6 +489,108 @@ self.PlotWorkFactory = (CS) => {
     return { pts, offs, layers };
   }
 
+  // ---------------- painting: done here on an OffscreenCanvas, so the page only blits a bitmap ----------------
+  // Stroking tens of thousands of segments is real work for the browser's canvas; deep
+  // inside a cloud the picture is nearly solid ink and that work would stall the page.
+  // The canvases are rasterized in software here (willReadFrequently asks Chrome for a
+  // CPU canvas), so the page's GPU process, which the compositor shares, only ever
+  // receives a finished bitmap. A GPU canvas would hand it every stroke to tessellate.
+  const canvases = {};
+  function canvasFor(which, w, h) {
+    if (typeof OffscreenCanvas === 'undefined') return null;
+    let c = canvases[which];
+    if (!c || c.cv.width !== w || c.cv.height !== h) {
+      const cv = new OffscreenCanvas(w, h);
+      c = canvases[which] = { cv, ctx: cv.getContext('2d', { willReadFrequently: true }) };
+    }
+    return c;
+  }
+  // Vertices closer together than a fraction of a pixel add nothing but stroking work, so
+  // they are skipped; the ends of every stroke are always kept. Length is measured on the originals.
+  function strokePolys(ctx, polys, k, ox, oy, duo) {
+    const byLayer = [], tol2 = 0.5 * 0.5;
+    for (const p of polys) (byLayer[p.layer] || (byLayer[p.layer] = [])).push(p);
+    ctx.globalCompositeOperation = duo ? (CS.darkPaper() ? 'screen' : 'multiply') : 'source-over';   // overlapping inks mix like print
+    let length = 0;
+    byLayer.forEach((arr, li) => {
+      if (!arr) return;
+      ctx.strokeStyle = CS.penColour(li);
+      ctx.beginPath();
+      for (const p of arr) {
+        const q = p.pts, last = q.length - 2;
+        let px = ox + q[0] * k, py = oy + q[1] * k;
+        ctx.moveTo(px, py);
+        for (let i = 2; i < q.length; i += 2) {
+          length += Math.hypot(q[i] - q[i-2], q[i+1] - q[i-1]);
+          const x = ox + q[i] * k, y = oy + q[i+1] * k, dx = x - px, dy = y - py;
+          if (dx * dx + dy * dy < tol2 && i < last) continue;
+          ctx.lineTo(x, y); px = x; py = y;
+        }
+      }
+      ctx.stroke();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+    return length;
+  }
+  // pt: { pw, ph, k, dpr, paper (fill the paper colour, or stay transparent for the page to put the scan under), focusMark }
+  function paintPlot(res, d, pt) {
+    const cc = canvasFor('plot', pt.pw, pt.ph);
+    if (!cc) return null;
+    const cv = cc.cv, c = cc.ctx, k = pt.k, S = CS.S;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalCompositeOperation = 'source-over';
+    if (pt.paper) { c.fillStyle = S.paperCol; c.fillRect(0, 0, pt.pw, pt.ph); } else c.clearRect(0, 0, pt.pw, pt.ph);
+    c.strokeStyle = CS.darkPaper() ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.12)';
+    c.lineWidth = 1; c.setLineDash([5, 5]);
+    c.strokeRect(d.mx * k, d.my * k, d.dw * k, d.dh * k);
+    c.setLineDash([]);
+    c.lineCap = 'round';
+    let lines = 0, length = 0;
+    if (res.polys) {
+      c.lineWidth = Math.max(S.pen * k, 1);
+      c.lineJoin = c.lineWidth > 2.5 ? 'round' : 'bevel';   // round joins cost stroking work and can't be seen on a thin line
+      length = strokePolys(c, res.polys, k, 0, 0, S.mode === 'duotone' && pt.paper);
+      lines = res.polys.length;
+    } else {
+      c.setTransform(k, 0, 0, k, 0, 0);
+      c.lineWidth = Math.max(S.pen, 1 / k);
+      c.lineJoin = 'round';
+      c.textAlign = 'center';
+      for (let L = 0; L < res.paths.length; L++) {
+        const col = S.pens[L % 4];
+        if (res.paths[L].length) { c.strokeStyle = col; c.stroke(new Path2D(res.paths[L].join(' '))); lines += res.paths[L].length; }
+        if (res.texts[L].length) {
+          c.fillStyle = col;
+          for (const t of res.texts[L]) { c.font = t.s.toFixed(2) + 'px monospace'; c.fillText(t.ch, t.x, t.y); }
+          lines += res.texts[L].length;
+        }
+      }
+      c.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    if (S.focus && pt.focusMark) {
+      const x = S.focus.x * d.W * k, y = S.focus.y * d.H * k, r = 15 * pt.dpr;
+      c.strokeStyle = '#e5f15c'; c.lineWidth = 2 * pt.dpr;
+      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
+      c.moveTo(x - r * 1.5, y); c.lineTo(x + r * 1.5, y); c.moveTo(x, y - r * 1.5); c.lineTo(x, y + r * 1.5);
+      c.stroke();
+    }
+    return { bitmap: cv.transferToImageBitmap(), lines, length };
+  }
+  function paintThumb(polys, d, mode, size) {
+    const cc = canvasFor('thumb', size, size);
+    if (!cc) return null;
+    const cv = cc.cv, ctx = cc.ctx, W = size, H = size;
+    const k = Math.max(W / d.W, H / d.H) * 1.08, ox = (W - d.W * k) / 2, oy = (H - d.H * k) / 2;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = CS.S.paperCol; ctx.fillRect(0, 0, W, H);
+    ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'bevel';
+    const keep = CS.S.mode;
+    CS.S.mode = mode;   // colour by the thumbnail's own style
+    strokePolys(ctx, polys, k, ox, oy, mode === 'duotone');
+    CS.S.mode = keep;
+    return cv.transferToImageBitmap();
+  }
+
   let thumbSnap = null;   // the view the style thumbnails are drawn from
   function job(msg) {
     if (msg.LS) Object.assign(CS.S, msg.LS);   // the page's PlotterLens settings
@@ -500,8 +602,9 @@ self.PlotWorkFactory = (CS) => {
     }
     if (msg.kind === 'thumb') {
       if (!thumbSnap) return { polys: packPolys([]) };
-      const t = thumbSnap;
-      return { polys: packPolys(CS.thumb(msg.mode, t.gray, t.w, t.h, t.d, t.shape)) };
+      const t = thumbSnap, polys = CS.thumb(msg.mode, t.gray, t.w, t.h, t.d, t.shape);
+      const bitmap = msg.paint ? paintThumb(polys, t.d, msg.mode, msg.paint.size) : null;
+      return bitmap ? { bitmap } : { polys: packPolys(polys) };
     }
     if (prm.pointStyle) {
       const out = pointStyle(view, d, prm);
@@ -514,7 +617,7 @@ self.PlotWorkFactory = (CS) => {
           out.paths[p.layer].push(s);
         }
       }
-      return out;
+      return (msg.paint && paintPlot(out, d, msg.paint)) || out;
     }
     const fld = rasterField(view, d, msg.res, prm);
     // while the camera moves the style draws with wider spacing, so slow styles keep up; it refines when the camera stops
@@ -525,6 +628,8 @@ self.PlotWorkFactory = (CS) => {
     finally { CS.S.spacing = spacing; }
     if (prm.depthPens) polys = depthPens(polys, d, fld, prm);
     polys = polys.concat(formLines(fld, d, prm));
+    const painted = msg.paint && paintPlot({ polys }, d, msg.paint);
+    if (painted) return { ...painted, loopBusy: CS.loopBusy() };
     return { polys: packPolys(polys), loopBusy: CS.loopBusy() };
   }
 
@@ -533,7 +638,7 @@ self.PlotWorkFactory = (CS) => {
     let r;
     try { r = job(m); }
     catch (err) { post({ id: m.id, error: String(err && err.stack || err) }); return; }
-    const transfer = r.polys ? [r.polys.pts.buffer, r.polys.offs.buffer, r.polys.layers.buffer] : [];
+    const transfer = r.polys ? [r.polys.pts.buffer, r.polys.offs.buffer, r.polys.layers.buffer] : r.bitmap ? [r.bitmap] : [];
     post({ id: m.id, ...r }, transfer);
   }
   return { job, handle };

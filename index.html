@@ -2257,10 +2257,21 @@ async function buildPlotLayers(opts = {}) {
   const view = projectView(d, stride, point);
   const msg = { kind: 'plot', d, prm: plotParams(view.frame), LS, final: !!opts.final, coarse: !!opts.moving && !point,
                 res: opts.final ? 480 : opts.moving ? 180 : 320, view: viewMessage(view, point) };
+  // the live view is painted in the worker and comes back as a bitmap; a still being exported comes back as strokes
+  const paint = opts.final || plotInline ? null : plotPaint(d, view.frame, opts.moving);
+  if (paint) msg.paint = paint;
   const meta = plotMeta(), mainMs = performance.now() - t0;
   const r = await plotJob('plot', msg, buffersOf(msg.view));
-  if (r.polys) return { W, H, d, polys: unpackPolys(r.polys), paths: [], texts: [], meta, mainMs, loopBusy: !!r.loopBusy };
-  return { W, H, d, polys: null, paths: r.paths, texts: r.texts, meta, mainMs };
+  if (r.bitmap) return { W, H, d, paint, bitmap: r.bitmap, lines: r.lines, length: r.length, meta, mainMs, loopBusy: !!r.loopBusy };
+  if (r.polys) return { W, H, d, paint, polys: unpackPolys(r.polys), paths: [], texts: [], meta, mainMs, loopBusy: !!r.loopBusy };
+  return { W, H, d, paint, polys: null, paths: r.paths, texts: r.texts, meta, mainMs };
+}
+// how the live plot is painted: canvas size and scale for the page frame, at full resolution when still
+function plotPaint(d, f, moving) {
+  const dpr = moving ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+  const k = Math.min(f.s * dpr, Math.sqrt(9e6 / (d.W * d.H)));
+  return { pw: Math.round(d.W * k), ph: Math.round(d.H * k), k, dpr, cssW: Math.round(d.W * f.s), cssH: Math.round(d.H * f.s),
+           paper: !LS.camUnder, focusMark: !!(LS.focus && (LS.showTarget || performance.now() < focusFlash)) };
 }
 
 async function buildPlotSVG() {
@@ -2349,10 +2360,7 @@ async function drawPlotFrame(moving) {
   if (!lay || !plotLive) return;
   const t0 = performance.now();
   const d = lay.d, f = plotFrame(d);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssW = Math.round(d.W * f.s), cssH = Math.round(d.H * f.s);
-  const k = Math.min(f.s * dpr, Math.sqrt(9e6 / (d.W * d.H)));
-  const pw = Math.round(d.W * k), ph = Math.round(d.H * k);
+  const pt = lay.paint || plotPaint(d, f, moving), { pw, ph, k, dpr, cssW, cssH } = pt;
   if (plotCv.width !== pw || plotCv.height !== ph) { plotCv.width = pw; plotCv.height = ph; }
   if (plotCv.dataset.css !== cssW + 'x' + cssH) { plotCv.dataset.css = cssW + 'x' + cssH; plotCv.style.width = cssW + 'px'; plotCv.style.height = cssH + 'px'; }
   const c = plotCtx;
@@ -2364,6 +2372,12 @@ async function drawPlotFrame(moving) {
     c.globalAlpha = LS.camAlpha / 100;
     c.drawImage(gl, (f.px + d.mx * f.s) * sc, (f.py + d.my * f.s) * sc, d.dw * f.s * sc, d.dh * f.s * sc, d.mx * k, d.my * k, d.dw * k, d.dh * k);
     c.globalAlpha = 1;
+  }
+  if (lay.bitmap) { // painted by the worker: one blit and done
+    c.drawImage(lay.bitmap, 0, 0);
+    lay.bitmap.close();
+    finishPlotFrame(lay, t0, lay.lines, lay.length);
+    return;
   }
   c.strokeStyle = CS.darkPaper() ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.12)';
   c.lineWidth = 1; c.setLineDash([5, 5]);
@@ -2414,8 +2428,11 @@ async function drawPlotFrame(moving) {
     c.moveTo(x - r * 1.5, y); c.lineTo(x + r * 1.5, y); c.moveTo(x, y - r * 1.5); c.lineTo(x, y + r * 1.5);
     c.stroke();
   }
+  finishPlotFrame(lay, t0, lines, length);
+}
+function finishPlotFrame(lay, t0, lines, length) {
   plotLoopBusy = !!lay.loopBusy;
-  // the worker sets its own pace; this only caps what the main thread spends on projecting and painting
+  // the worker sets its own pace; this only caps what the main thread spends on projecting and blitting
   plotGap = Math.max(33, (lay.mainMs + performance.now() - t0) * 4);
   const n2 = lines >= 1000 ? (lines / 1000).toFixed(1) + 'k' : lines;
   updateReadout(length ? [`${(length / 1000).toFixed(1)} m`, `${n2} lines`] : [`${n2} marks`]);
@@ -2441,11 +2458,12 @@ function nextThumb() { // the chosen style first, then its neighbours outward, t
 }
 async function drawThumb(pick) {
   pick.stamp = thumbStamp;
-  const r = await plotJob('thumb', { kind: 'thumb', mode: pick.mode, LS });
+  const { cv, ctx } = pick, W = cv.width, H = cv.height;
+  const r = await plotJob('thumb', { kind: 'thumb', mode: pick.mode, LS, paint: plotInline ? null : { size: W } });
   const d = thumbD;
   if (!d) return;
+  if (r.bitmap) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(r.bitmap, 0, 0); r.bitmap.close(); return; }
   const out = unpackPolys(r.polys);
-  const { cv, ctx } = pick, W = cv.width, H = cv.height;
   const k = Math.max(W / d.W, H / d.H) * 1.08, ox = (W - d.W * k) / 2, oy = (H - d.H * k) / 2;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = LS.paperCol; ctx.fillRect(0, 0, W, H);
