@@ -1,22 +1,16 @@
 // plot-worker.js — builds the plot away from the main thread, so the camera and the
 // 3D view stay smooth while a heavy style is drawing.
 //
-// It loads two ways: as a Web Worker (jobs arrive by postMessage) and, on the page
-// itself, as a plain script exposing self.PlotWork.job for browsers that can't start
-// a worker from the page (Chrome on file://). The maths is the same either way.
+// Written as a factory: the page calls it directly for the in-thread fallback, and
+// builds the worker from the factory's own source text (Function.prototype.toString)
+// in a blob URL. That way the worker starts from file:// too, where Chrome refuses
+// to load a worker script from disk.
 //
 // A job carries the view: every visible point already projected to page mm, with its
 // distance, height, surface facing, light, colour, edge score and data shift. Nothing
 // here touches the scene, the camera or the DOM.
-(() => {
+self.PlotWorkFactory = (CS) => {
   'use strict';
-  const isWorker = typeof importScripts === 'function';
-  if (isWorker) {
-    // the filter core draws snowflake profiles on a canvas; in a worker that is an OffscreenCanvas
-    self.document = { createElement: () => new OffscreenCanvas(8, 8) };
-    importScripts('plotterlens-core.js');
-  }
-  const CS = self.PlotterLensCore;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
   // ---------------- the picture PlotterLens's filters read ----------------
@@ -534,16 +528,15 @@
     return { polys: packPolys(polys), loopBusy: CS.loopBusy() };
   }
 
-  if (isWorker) {
-    self.onmessage = e => {
-      const m = e.data;
-      let r;
-      try { r = job(m); }
-      catch (err) { self.postMessage({ id: m.id, error: String(err && err.stack || err) }); return; }
-      const transfer = r.polys ? [r.polys.pts.buffer, r.polys.offs.buffer, r.polys.layers.buffer] : [];
-      self.postMessage({ id: m.id, ...r }, transfer);
-    };
-  } else {
-    self.PlotWork = { job };
+  // one message in, one result out; `post` is the worker's postMessage
+  function handle(m, post) {
+    let r;
+    try { r = job(m); }
+    catch (err) { post({ id: m.id, error: String(err && err.stack || err) }); return; }
+    const transfer = r.polys ? [r.polys.pts.buffer, r.polys.offs.buffer, r.polys.layers.buffer] : [];
+    post({ id: m.id, ...r }, transfer);
   }
-})();
+  return { job, handle };
+};
+// on the page: the in-thread fallback
+if (self.PlotterLensCore) self.PlotWork = self.PlotWorkFactory(self.PlotterLensCore);

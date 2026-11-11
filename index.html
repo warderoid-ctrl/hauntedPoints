@@ -692,7 +692,7 @@ const MAX_INPUT_POINTS = 1000000;
 const MAX_EDGE_POINTS = 120000;        // edge cost grows with points x neighbours, so big scans are analysed from a sample
 const MAX_DISPLACE_PER_FRAME = 150000; // bigger scans move in rotating slices, so a frame costs the same at any size
 const PLOT_PREVIEW_POINTS = 200000;    // the live plot reads a sample; the exported SVG uses every point
-const MAX_POINT_PX = 48;               // cap on a rendered point's diameter, in drawing-buffer pixels
+const MAX_POINT_PX = 32;               // cap on a rendered point's diameter, in drawing-buffer pixels: deep inside a big cloud the overdraw of near points is what stalls the GPU
 let rawPos = null, rawCol = null;      // sampled, un-normalized, as loaded
 let basePts = new Float32Array(0);     // normalized positions, n*3
 let baseCol = null;                    // n*3 rgb 0..1 or null
@@ -2184,11 +2184,21 @@ function plotMeta() {
 // so thumbnails never hold the plot up. Where a worker can't start (Chrome on file://)
 // the same code runs on the page through self.PlotWork, as it did before.
 const plotJobs = new Map();
-let plotJobId = 0, plotInline = false;
+let plotJobId = 0, plotInline = false, workerURL = null;
+// The worker is built from the source of the two factories already on the page, in a
+// blob URL: that starts from file:// as well as http, where a worker *file* would not.
+function workerSource() {
+  return `self.document = { createElement: () => new OffscreenCanvas(8, 8) };   // the snowflake style draws on a canvas
+self.PlotterLensCore = (${self.PlotterLensCoreFactory.toString()})();
+const PW = (${self.PlotWorkFactory.toString()})(self.PlotterLensCore);
+self.onmessage = e => PW.handle(e.data, (msg, transfer) => self.postMessage(msg, transfer || []));
+`;
+}
 function makeWorker(name) {
   let w = null;
   try {
-    w = new Worker('plot-worker.js');
+    if (!workerURL) workerURL = URL.createObjectURL(new Blob([workerSource()], { type: 'text/javascript' }));
+    w = new Worker(workerURL);
     w.onmessage = e => {
       const j = plotJobs.get(e.data.id);
       if (!j) return;

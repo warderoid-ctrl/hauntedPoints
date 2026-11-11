@@ -85,10 +85,10 @@ points themselves and how far the data moved them.
   After changing PlotterLens, run `python tools/sync_plotterlens.py` to pull
   the new version across
 - `plot-worker.js` — builds the plot in a Web Worker so the camera and the 3D
-  view stay smooth while a heavy style draws. Served over http(s) it runs as a
-  worker; opened straight from disk (file://) Chrome won't start one, so the
-  same code runs on the page and heavy styles will stutter the camera again —
-  serve the folder (`python -m http.server`) for the smooth version
+  view stay smooth while a heavy style draws. The page builds the worker from
+  this file's source in a blob URL, so it starts from file:// as well as http
+  (Chrome won't load a worker *file* from disk). If a browser can't start it,
+  the same code runs on the page instead
 - `edge.ts` — AssemblyScript source of the WASM edge-detection core
 - `fetch_era5_cds.py` — optional: fetch ERA5 directly from the Copernicus
   Climate Data Store with your CDS API key and convert it to the JSON the app
