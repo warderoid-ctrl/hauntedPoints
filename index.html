@@ -497,6 +497,7 @@ select, input[type=text], input[type=number], input[type=date] {
 </section>
 
 <script src="plotterlens-core.js"></script>
+<script src="plot-worker.js"></script>
 
 <script type="module">
 import * as THREE from 'three';
@@ -2064,23 +2065,6 @@ function climValPoint(i) { // same sampling the displacement uses
   return normArr[i0] * (1 - f) + normArr[i1] * f;
 }
 
-function catmullPath(pts, closed, f) {
-  const m = pts.length;
-  if (m < 2) return '';
-  let d = `M${f(pts[0][0])} ${f(pts[0][1])}`;
-  const end = closed ? m : m - 1;
-  for (let i = 0; i < end; i++) {
-    const p1 = pts[i], p2 = pts[(i + 1) % m];
-    const p0 = (closed || i > 0) ? pts[(i - 1 + m) % m] : p1;
-    const p3 = (closed || i < m - 2) ? pts[(i + 2) % m] : p2;
-    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
-    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
-    d += ` C${f(c1x)} ${f(c1y)} ${f(c2x)} ${f(c2y)} ${f(p2[0])} ${f(p2[1])}`;
-  }
-  if (closed) d += ' Z';
-  return d;
-}
-
 // Page size and drawable area in mm, the same shape PlotterLens uses.
 function paperWH() {
   if (LS.size === 'custom') return [P.pageW, P.pageH];
@@ -2103,14 +2087,19 @@ function plotFrame(d) {
   return { vw, vh, s, px: (vw - d.W * s) / 2, py: (vh - d.H * s) / 2 };
 }
 
-// Every point the camera can see inside the page frame, projected to page mm.
-function projectView(d, stride = 1) {
+// Every point the camera can see inside the page frame, projected to page mm, with
+// what the plot builder needs to know about each one: distance, height, which way
+// its surface faces, how the light falls on it, colour, edge score and data shift.
+function projectView(d, stride = 1, withBase = false) {
   camera.updateMatrixWorld();
   const f = plotFrame(d), v = new THREE.Vector3();
   const inv = camera.matrixWorldInverse, proj = camera.projectionMatrix, near = camera.near;
-  const vis = new Int32Array(n), nd = new Float32Array(n * 2), nb = new Float32Array(n * 2);
-  const depth = new Float32Array(n), dist = new Float32Array(n), mag = new Float32Array(n);
-  const facing = new Float32Array(n), shade = new Float32Array(n), hgt = new Float32Array(n);
+  const cap = Math.ceil(n / stride) + 1;
+  const vis = new Int32Array(cap), nd = new Float32Array(cap * 2), nb = new Float32Array(cap * 2);
+  const depth = new Float32Array(cap), dist = new Float32Array(cap), mag = new Float32Array(cap);
+  const facing = new Float32Array(cap), shade = new Float32Array(cap), hgt = new Float32Array(cap);
+  const lum = new Float32Array(cap), edge = new Float32Array(cap), base = withBase ? new Float32Array(cap * 3) : null;
+  const col = colAttr ? colAttr.array : null;
   const x1 = d.mx + d.dw, y1 = d.my + d.dh, e = inv.elements;
   // light direction in camera space: the angle runs round the picture (0 = from the top), height lifts it towards you
   const az = P.lightAz * Math.PI / 180, el = P.lightEl * Math.PI / 180;
@@ -2132,246 +2121,50 @@ function projectView(d, stride = 1) {
     if (nw) { // scan normals are unsigned: turn each to face the camera, then compare with the view and the light
       let nx = e[0]*nw[0] + e[4]*nw[1] + e[8]*nw[2], ny = e[1]*nw[0] + e[5]*nw[1] + e[9]*nw[2], nz = e[2]*nw[0] + e[6]*nw[1] + e[10]*nw[2];
       const pl = Math.hypot(vx, vy, vz) || 1;
-      let f = -(nx * vx + ny * vy + nz * vz) / pl;
-      if (f < 0) { f = -f; nx = -nx; ny = -ny; nz = -nz; }
-      facing[m] = f;
+      let fc = -(nx * vx + ny * vy + nz * vz) / pl;
+      if (fc < 0) { fc = -fc; nx = -nx; ny = -ny; nz = -nz; }
+      facing[m] = fc;
       shade[m] = Math.max(0, nx * lx + ny * ly + nz * lz);
     } else { facing[m] = 0.5; shade[m] = 0.5; }
+    lum[m] = col ? 0.299 * col[i*3] + 0.587 * col[i*3+1] + 0.114 * col[i*3+2] : 0.5;
+    edge[m] = edgeScores[i] ?? 0;
     v.set(basePts[i*3], basePts[i*3+1], basePts[i*3+2]).applyMatrix4(inv);
     if (-v.z > near) { v.applyMatrix4(proj); nb[m*2] = pageX(v.x); nb[m*2+1] = pageY(v.y); }
     else { nb[m*2] = X; nb[m*2+1] = Y; }
+    if (base) { base[m*3] = basePts[i*3]; base[m*3+1] = basePts[i*3+1]; base[m*3+2] = basePts[i*3+2]; }
     mag[m] = Math.hypot(displaced[i*3]-basePts[i*3], displaced[i*3+1]-basePts[i*3+1], displaced[i*3+2]-basePts[i*3+2]);
     if (mag[m] > mmax) mmax = mag[m];
     m++;
   }
   for (let k = 0; k < m; k++) mag[k] /= mmax;
-  return { frame: f, count: m, vis: vis.subarray(0, m), nd: nd.subarray(0, m*2), nb: nb.subarray(0, m*2),
-           depth: depth.subarray(0, m), dist: dist.subarray(0, m), mag: mag.subarray(0, m),
-           facing: facing.subarray(0, m), shade: shade.subarray(0, m), hgt: hgt.subarray(0, m) };
-}
-
-// The picture PlotterLens's filters read, built from the view inside the frame.
-// Points are splatted nearest-first, so each cell belongs to the point you can see
-// there. From that one pass come the tone (how much ink), the structure field
-// (which way lines run) and the 3D fields the form lines are traced from.
-function rasterField(view, d, res) {
-  let w = res, h = Math.round(w * d.dh / d.dw);
-  const maxH = Math.round(res * 1.45);
-  if (h > maxH) { h = maxH; w = Math.round(h * d.dw / d.dh); }
-  w = Math.max(w, 8); h = Math.max(h, 8);
-  const N = w * h, win = new Int32Array(N).fill(-1), zb = new Float32Array(N).fill(Infinity);
-  const cellPerPx = w / (d.dw * view.frame.s);
-  const sizeK = P.psize * 0.004 * view.frame.vh * 0.5;   // same size law as the point shader
-  for (let k = 0; k < view.count; k++) {
-    const z = view.dist[k];
-    const x = (view.nd[k*2] - d.mx) / d.dw * w, y = (view.nd[k*2+1] - d.my) / d.dh * h;
-    const r = Math.max(0.5, Math.min(6, 0.5 * Math.min(MAX_POINT_PX, sizeK / z) * cellPerPx));
-    const x0 = Math.max(0, Math.floor(x - r)), x1 = Math.min(w - 1, Math.floor(x + r));
-    const y0 = Math.max(0, Math.floor(y - r)), y1 = Math.min(h - 1, Math.floor(y + r));
-    for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++) {
-      const dx = xx + 0.5 - x, dy = yy + 0.5 - y;
-      if (r > 1 && dx*dx + dy*dy > r*r) continue;
-      const c = yy * w + xx;
-      if (z < zb[c]) { zb[c] = z; win[c] = k; }
-    }
-  }
-  const range = arr => { let a = Infinity, b = -Infinity; for (let k = 0; k < view.count; k++) { if (arr[k] < a) a = arr[k]; if (arr[k] > b) b = arr[k]; } return [a, (b - a) || 1]; };
-  const [dn, dSpan] = range(view.dist), [hn, hSpan] = range(view.hgt);
-  const col = colAttr ? colAttr.array : null;
-  const lum = k => { const i = view.vis[k]; return col ? 0.299 * col[i*3] + 0.587 * col[i*3+1] + 0.114 * col[i*3+2] : 0.5; };
-  const CH = {   // per point, 0..1
-    seen: lum,
-    depth: k => (view.dist[k] - dn) / dSpan,          // 0 near .. 1 far
-    height: k => (view.hgt[k] - hn) / hSpan,          // 0 low .. 1 high
-    facing: k => view.facing[k],                      // 1 square on .. 0 edge on
-    light: k => view.shade[k],
-    edge: k => edgeScores[view.vis[k]] ?? 0,
-    data: k => view.mag[k]
-  };
-  const mask = new Float32Array(N);
-  for (let c = 0; c < N; c++) if (win[c] >= 0) mask[c] = 1;
-  const splat = f => { const A = new Float32Array(N); for (let c = 0; c < N; c++) if (win[c] >= 0) A[c] = f(win[c]); return A; };
-  const blur = Math.max(1, Math.round(w / 130));
-  const M = CS.boxBlur(mask, w, h, blur);
-  // smooth a channel and carry it on past the edge of the scan, so it has no false cliff there
-  const filled = A => {
-    const out = new Float32Array(N), done = new Uint8Array(N);
-    let left = N;
-    for (const r of [blur, blur * 4, blur * 16, blur * 64]) {
-      const T = CS.boxBlur(A, w, h, r), Mr = r === blur ? M : CS.boxBlur(mask, w, h, r), thr = r === blur ? 0.15 : 0.01;
-      for (let c = 0; c < N; c++) if (!done[c] && Mr[c] > thr) { out[c] = T[c] / Mr[c]; done[c] = 1; left--; }
-      if (!left) break;
-    }
-    if (left) { let sum = 0, cnt = 0; for (let c = 0; c < N; c++) if (done[c]) { sum += out[c]; cnt++; } for (let c = 0; c < N; c++) if (!done[c]) out[c] = cnt ? sum / cnt : 0.5; }
-    return out;
-  };
-  const cache = {};
-  const field = name => cache[name] || (cache[name] = filled(splat(CH[name])));
-  let silhouette = null;
-  const sil = () => silhouette || (silhouette = CS.boxBlur(mask, w, h, Math.max(2, Math.round(w / 70))));
-
-  // tone: 1 is bare paper, 0 full ink
-  const src = P.toneSrc, gray = new Float32Array(N);
-  if (src === 'density') for (let c = 0; c < N; c++) gray[c] = 1 - Math.min(1, Math.sqrt(M[c]) * 1.15);
-  else {
-    const tone = {
-      seen: lum, lit: k => lum(k) * (0.3 + 0.7 * CH.light(k)), shaded: CH.light, depth: CH.depth, facing: CH.facing,
-      height: k => 1 - CH.height(k), edge: k => 1 - CH.edge(k), data: k => 1 - CH.data(k)
-    }[src] || lum;
-    const T = CS.boxBlur(splat(tone), w, h, blur);
-    for (let c = 0; c < N; c++) {
-      const m = M[c];
-      if (m < 1e-3) { gray[c] = 1; continue; }
-      const a = Math.min(1, Math.max(0, (m - 0.03) / 0.17));
-      gray[c] = 1 + (T[c] / m - 1) * a * a * (3 - 2 * a);
-    }
-  }
-  if (P.depthFade) { // atmospheric perspective: one side of the scan thins out towards bare paper
-    const D = field('depth'), f = Math.abs(P.depthFade) / 100;
-    for (let c = 0; c < N; c++) { const t = P.depthFade > 0 ? D[c] : 1 - D[c]; gray[c] += (1 - gray[c]) * f * t; }
-  }
-
-  // structure: high values read as dark, as PlotterLens's own tone field does
-  let shape = null;
-  if (P.follow !== 'tone') {
-    const F = P.follow === 'depth' ? field('depth') : P.follow === 'height' ? field('height') : P.follow === 'facing' ? field('facing')
-            : P.follow === 'light' ? field('light') : field('data');
-    const invert = P.follow === 'depth' || P.follow === 'facing' || P.follow === 'light';
-    let lo = Infinity, hi = -Infinity;
-    for (let c = 0; c < N; c++) if (M[c] > 0.2) { if (F[c] < lo) lo = F[c]; if (F[c] > hi) hi = F[c]; }
-    if (!isFinite(lo)) { lo = 0; hi = 1; }
-    const span = (hi - lo) || 1;
-    shape = new Float32Array(N);
-    const S0 = sil();
-    for (let c = 0; c < N; c++) {
-      let t = Math.min(1, Math.max(0, (F[c] - lo) / span));
-      if (invert) t = 1 - t;
-      const a = Math.min(1, Math.max(0, (S0[c] - 0.15) / 0.3));
-      shape[c] = t * a * a * (3 - 2 * a);   // off the scan it settles to 0: far, low, flat
-    }
-  }
-  return { gray, w, h, shape, M, field, sil };
-}
-
-// Lines traced from the 3D fields, laid over any style on their own pen.
-function formLines(fld, d) {
-  const out = [], pen = P.formPen, { w, h } = fld;
-  if (!(P.formSil || P.formTurn || P.formSlices || P.formHeight)) return out;
-  const S0 = fld.sil(), SIL = 0.3;
-  const at = (F, x, y) => F[Math.min(h - 1, Math.max(0, Math.floor((y - d.my) / d.dh * h))) * w + Math.min(w - 1, Math.max(0, Math.floor((x - d.mx) / d.dw * w)))];
-  const minLen = Math.max(2, Math.hypot(d.dw, d.dh) * 0.006);
-  const push = pts => {
-    let len = 0;
-    for (let i = 2; i < pts.length; i += 2) len += Math.hypot(pts[i] - pts[i-2], pts[i+1] - pts[i-1]);
-    if (len >= minLen) out.push({ layer: pen, pts });
-  };
-  const insideOnly = pts => { // keep the runs that lie on the scan, not on the fill carried past its edge
-    let cur = [];
-    for (let i = 0; i < pts.length; i += 2) {
-      if (at(S0, pts[i], pts[i+1]) > SIL) cur.push(pts[i], pts[i+1]);
-      else { if (cur.length >= 4) push(cur); cur = []; }
-    }
-    if (cur.length >= 4) push(cur);
-  };
-  const levels = k => Array.from({ length: k }, (_, i) => (i + 1) / (k + 1));
-  if (P.formSil) CS.iso(S0, w, h, [SIL], d)[0].forEach(push);
-  if (P.formTurn) depthEdges(fld.field('depth'), w, h, d).forEach(insideOnly);
-  for (const [name, k] of [['depth', P.formSlices], ['height', P.formHeight]]) {
-    if (!k) continue;
-    const F = fld.field(name);
-    let lo = Infinity, hi = -Infinity;
-    for (let c = 0; c < F.length; c++) if (S0[c] > SIL) { if (F[c] < lo) lo = F[c]; if (F[c] > hi) hi = F[c]; }
-    if (!isFinite(lo)) continue;
-    const lv = levels(k).map(t => lo + t * (hi - lo));
-    CS.iso(F, w, h, lv, d).forEach(lines => lines.forEach(insideOnly));
-  }
+  // exact-size copies: these are handed over to the plot worker
+  const cut = (a, k) => a.slice(0, m * k);
+  const out = { frame: f, count: m, vis: cut(vis, 1), nd: cut(nd, 2), nb: cut(nb, 2), depth: cut(depth, 1), dist: cut(dist, 1),
+                mag: cut(mag, 1), facing: cut(facing, 1), shade: cut(shade, 1), hgt: cut(hgt, 1), lum: cut(lum, 1), edge: cut(edge, 1) };
+  if (base) out.base = cut(base, 3);
   return out;
 }
 
-// Occlusion edges: where depth jumps, something stands in front of something else.
-// Gradient of log depth, thinned to one cell (non-maximum suppression), then walked
-// into polylines and lightly smoothed so the pixel steps don't show.
-function depthEdges(D, w, h, d) {
-  const N = w * h, L = new Float32Array(N), G = new Float32Array(N), A = new Uint8Array(N);
-  for (let c = 0; c < N; c++) L[c] = Math.log(0.05 + D[c]);
-  for (let j = 1; j < h - 1; j++) for (let i = 1; i < w - 1; i++) {
-    const c = j * w + i, gx = (L[c + 1] - L[c - 1]) / 2, gy = (L[c + w] - L[c - w]) / 2;
-    G[c] = Math.hypot(gx, gy);
-    const a = Math.atan2(gy, gx) * 4 / Math.PI;               // gradient direction in eighths
-    A[c] = ((Math.round(a) % 4) + 4) % 4;                     // 0 across, 1 diagonal, 2 down, 3 other diagonal
+// pen-layer attribute 0..1 per visible point, for the point styles
+function layerAttrs(view) {
+  const { vis, depth, count } = view, a = new Float32Array(count);
+  let dmin = Infinity, dmax = -Infinity;
+  for (let k = 0; k < count; k++) { if (depth[k] < dmin) dmin = depth[k]; if (depth[k] > dmax) dmax = depth[k]; }
+  const planetOn = !!planetActive(), by = P.plotLayerBy;
+  for (let k = 0; k < count; k++) {
+    const i = vis[k];
+    let t;
+    if (by === 'scan' && baseCol) t = baseCol[i*3]*0.35 + baseCol[i*3+1]*0.5 + baseCol[i*3+2]*0.15;
+    else if (by === 'edge') t = edgeScores[i] ?? 0;
+    else if (by === 'depth') t = dmax > dmin ? (depth[k] - dmin) / (dmax - dmin) : 0;
+    else if (by === 'planet') t = planetOn ? planetValPoint(i) : (edgeScores[i] ?? 0);
+    else if (climate.loaded && planetOn) t = climValPoint(i) * 0.5 + planetValPoint(i) * 0.5;   // 'data': whichever layers are live, else edges
+    else if (climate.loaded) t = climValPoint(i);
+    else if (planetOn) t = planetValPoint(i);
+    else t = edgeScores[i] ?? 0;
+    a[k] = t < 0 ? 0 : t > 1 ? 1 : t;
   }
-  const thr = 0.03 * 320 / w;                                 // a jump of a few percent of depth per cell, whatever the resolution
-  const OFF = [[1, 0], [1, 1], [0, 1], [-1, 1]];
-  const E = new Uint8Array(N);
-  for (let j = 1; j < h - 1; j++) for (let i = 1; i < w - 1; i++) {
-    const c = j * w + i, g = G[c];
-    if (g < thr) continue;
-    const [ox, oy] = OFF[A[c]];
-    if (g >= G[c + oy * w + ox] && g > G[c - oy * w - ox]) E[c] = 1;
-  }
-  const NB = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
-  const walk = (c, chain) => {
-    for (;;) {
-      const i = c % w, j = (c / w) | 0;
-      let next = -1;
-      for (const [dx, dy] of NB) {
-        const x = i + dx, y = j + dy;
-        if (x < 0 || y < 0 || x >= w || y >= h) continue;
-        const q = y * w + x;
-        if (E[q] === 1) { next = q; break; }
-      }
-      if (next < 0) return;
-      E[next] = 2; chain.push(next); c = next;
-    }
-  };
-  const toMm = c => [d.mx + ((c % w) + 0.5) / w * d.dw, d.my + (((c / w) | 0) + 0.5) / h * d.dh];
-  const out = [];
-  for (let c = 0; c < N; c++) {
-    if (E[c] !== 1) continue;
-    E[c] = 2;
-    const fwd = [c], back = [];
-    walk(c, fwd); walk(c, back);
-    const chain = back.reverse().concat(fwd);
-    if (chain.length < 4) continue;
-    const P2 = chain.map(toMm), pts = [];
-    for (let k = 0; k < P2.length; k++) { // three-tap average keeps the ends where they are
-      const a = P2[Math.max(0, k - 1)], b = P2[k], e = P2[Math.min(P2.length - 1, k + 1)];
-      pts.push((a[0] + 2 * b[0] + e[0]) / 4, (a[1] + 2 * b[1] + e[1]) / 4);
-    }
-    out.push(pts);
-  }
-  return out;
-}
-
-// Give each stretch of a stroke the pen of the band it passes through, cutting at band edges.
-function splitByPen(list, d, penAt, step) {
-  const out = [];
-  for (const p of list) {
-    const q = p.pts;
-    if (q.length < 4) { out.push(p); continue; }
-    let cur = [q[0], q[1]], curP = penAt(q[0], q[1]);
-    for (let i = 2; i < q.length; i += 2) {
-      const ax = q[i-2], ay = q[i-1], bx = q[i], by = q[i+1], m = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step));
-      for (let k = 1; k < m; k++) {
-        const x = ax + (bx - ax) * k / m, y = ay + (by - ay) * k / m, pn = penAt(x, y);
-        if (pn !== curP) { cur.push(x, y); if (cur.length >= 4) out.push({ layer: curP, pts: cur }); cur = [x, y]; curP = pn; }
-      }
-      const pn = penAt(bx, by);
-      if (pn !== curP) { cur.push(bx, by); if (cur.length >= 4) out.push({ layer: curP, pts: cur }); cur = [bx, by]; curP = pn; }
-      else cur.push(bx, by);
-    }
-    if (cur.length >= 4) out.push({ layer: curP, pts: cur });
-  }
-  return out;
-}
-function depthPens(list, d, fld) {
-  const D = fld.field('depth'), { w, h } = fld, N = P.depthBands;
-  const penAt = (x, y) => {
-    const t = D[Math.min(h - 1, Math.max(0, Math.floor((y - d.my) / d.dh * h))) * w + Math.min(w - 1, Math.max(0, Math.floor((x - d.mx) / d.dw * w)))];
-    const b = Math.min(N - 1, Math.floor((P.depthRev ? 1 - t : t) * N));
-    return b < 0 ? 0 : b;
-  };
-  return splitByPen(list, d, penAt, Math.max(0.25, d.dw / w * 0.7));
+  return a;
 }
 const formOn = () => P.formSil || P.formTurn || P.formSlices > 0 || P.formHeight > 0;
 
@@ -2386,281 +2179,82 @@ function plotMeta() {
   return meta;
 }
 
-function buildPlotLayers(opts = {}) {
-  if (!n) return null;
-  const d = plotDims(), W = d.W, H = d.H, g = P.plotGlyph;
-  const view = projectView(d, opts.final ? 1 : previewStride());
-  if (!P.plotStyle.startsWith('h:')) {
-    const fld = rasterField(view, d, opts.final ? 480 : opts.moving ? 180 : 320);
-    let polys = CS.run(fld.gray, fld.w, fld.h, d, { live: !opts.final, settle: opts.final ? 600 : 0, shape: fld.shape });
-    if (P.depthPens) polys = depthPens(polys, d, fld);
-    polys = polys.concat(formLines(fld, d));
-    return { W, H, d, polys, paths: [], texts: [], meta: plotMeta() };
-  }
-  const style = P.plotStyle.slice(2), layers = P.plotPens;
-  const fmt = v => (Math.round(v * 100) / 100).toString();
-  if (!view.count) return { W, H, d, polys: null, paths: Array.from({ length: layers }, () => []), texts: Array.from({ length: layers }, () => []), meta: plotMeta() };
-  const { vis, nd, nb, depth, mag } = view;
-  const DX = k => nd[k*2],  DY = k => nd[k*2+1];
-  const BX = k => nb[k*2], BY = k => nb[k*2+1];
-  // layer assignment attribute 0..1 per point
-  let dmin = Infinity, dmax = -Infinity;
-  for (let k = 0; k < vis.length; k++) { dmin = Math.min(dmin, depth[k]); dmax = Math.max(dmax, depth[k]); }
-  const planetOn = !!planetActive();
-  const layerAttr = k => {
-    const i = vis[k];
-    if (P.plotLayerBy === 'scan' && baseCol) return Math.max(0, Math.min(1, (baseCol[i*3]*0.35 + baseCol[i*3+1]*0.5 + baseCol[i*3+2]*0.15)));
-    if (P.plotLayerBy === 'edge') return edgeScores[i] ?? 0;
-    if (P.plotLayerBy === 'depth') return dmax > dmin ? (depth[k] - dmin) / (dmax - dmin) : 0;
-    if (P.plotLayerBy === 'planet') return planetOn ? planetValPoint(i) : (edgeScores[i] ?? 0);
-    // 'data': whichever data layers are live, else edges
-    if (climate.loaded && planetOn) return Math.max(0, Math.min(1, climValPoint(i) * 0.5 + planetValPoint(i) * 0.5));
-    if (climate.loaded) return climValPoint(i);
-    if (planetOn) return planetValPoint(i);
-    return edgeScores[i] ?? 0;
-  };
-  const layerOf = k => Math.min(layers - 1, Math.floor(layerAttr(k) * layers));
-  const layerPaths = Array.from({ length: layers }, () => []);
-  const layerTexts = Array.from({ length: layers }, () => []);
-
-  if (style === 'contour' || style === 'rings') {
-    const allRuns = [];
-    const bands = Math.round(6 + P.plotDetail * 0.54);
-    const axis = P.plotAxis, sortAxis = axis === 0 ? 2 : 0;
-    const bandVal = style === 'rings'
-      ? k => Math.hypot(basePts[vis[k]*3], basePts[vis[k]*3+2])
-      : k => basePts[vis[k]*3 + axis];
-    let vmn = Infinity, vmx = -Infinity;
-    for (let k = 0; k < vis.length; k++) { const bv = bandVal(k); vmn = Math.min(vmn, bv); vmx = Math.max(vmx, bv); }
-    const span = vmx - vmn || 1;
-    const groups = Array.from({ length: bands }, () => []);
-    for (let k = 0; k < vis.length; k++) groups[Math.min(bands - 1, Math.floor((bandVal(k) - vmn) / span * bands))].push(k);
-    for (const grp of groups) {
-      if (grp.length < 3) continue;
-      if (style === 'rings') grp.sort((a, b) => Math.atan2(basePts[vis[a]*3+2], basePts[vis[a]*3]) - Math.atan2(basePts[vis[b]*3+2], basePts[vis[b]*3]));
-      else grp.sort((a, b) => basePts[vis[a]*3 + sortAxis] - basePts[vis[b]*3 + sortAxis]);
-      // split runs where object-space gaps are large
-      const runs = [];
-      let run = [grp[0]];
-      for (let q = 1; q < grp.length; q++) {
-        const a = vis[grp[q-1]], b = vis[grp[q]];
-        const gap = Math.hypot(basePts[b*3]-basePts[a*3], basePts[b*3+1]-basePts[a*3+1], basePts[b*3+2]-basePts[a*3+2]);
-        if (gap > 0.1) { if (run.length > 2) runs.push(run); run = []; }
-        run.push(grp[q]);
-      }
-      if (run.length > 2) runs.push(run);
-      for (const r of runs) {
-        const closed = style === 'rings' && r.length === grp.length && grp.length > 8;
-        // resample the run so curves stay smooth instead of tracing every jitter
-        const maxPts = Math.round(18 + P.plotDetail * 1.2);
-        let r2 = r;
-        if (r.length > maxPts) {
-          r2 = [];
-          const st = (r.length - 1) / (maxPts - 1);
-          for (let q = 0; q < maxPts; q++) r2.push(r[Math.round(q * st)]);
-        }
-        let acc = 0;
-        for (const k of r2) acc += layerAttr(k);
-        allRuns.push({ pts: r2.map(k => [DX(k), DY(k)]), closed, attr: acc / r2.length });
-      }
-    }
-    // assign pens by quantile so every layer gets a share of the drawing
-    const sortedAttr = allRuns.map(r => r.attr).sort((a, b) => a - b);
-    for (const r of allRuns) {
-      let rank = sortedAttr.findIndex(v => v >= r.attr);
-      if (rank < 0) rank = sortedAttr.length - 1;
-      const L = Math.min(layers - 1, Math.floor(rank / (sortedAttr.length || 1) * layers));
-      layerPaths[L].push(catmullPath(r.pts, r.closed, fmt));
-    }
-  } else if (style === 'flow') {
-    // streamlines through the displacement vector field:
-    // splat every point's page-space displacement into a coarse grid, then
-    // integrate seed points through the bilinearly-sampled field
-    const GW = 56, GH = Math.max(8, Math.round(56 * H / W));
-    const cellW = W / GW, cellH = H / GH;
-    const fvx = new Float32Array(GW * GH), fvy = new Float32Array(GW * GH), fc = new Float32Array(GW * GH);
-    for (let k = 0; k < vis.length; k++) {
-      const gxi = Math.floor(DX(k) / cellW), gyi = Math.floor(DY(k) / cellH);
-      if (gxi < 0 || gxi >= GW || gyi < 0 || gyi >= GH) continue;
-      const c = gyi * GW + gxi;
-      fvx[c] += DX(k) - BX(k); fvy[c] += DY(k) - BY(k); fc[c]++;
-    }
-    for (let c = 0; c < GW * GH; c++) if (fc[c]) { fvx[c] /= fc[c]; fvy[c] /= fc[c]; }
-    const sampleField = (x, y) => {
-      const fx = x / cellW - 0.5, fy = y / cellH - 0.5;
-      const x0 = Math.floor(fx), y0 = Math.floor(fy);
-      let sx = 0, sy = 0, sw = 0;
-      for (let b = 0; b <= 1; b++) for (let a = 0; a <= 1; a++) {
-        const xx = x0 + a, yy = y0 + b;
-        if (xx < 0 || xx >= GW || yy < 0 || yy >= GH) continue;
-        const c = yy * GW + xx;
-        if (!fc[c]) continue;
-        const wgt = (1 - Math.abs(fx - xx)) * (1 - Math.abs(fy - yy));
-        sx += fvx[c] * wgt; sy += fvy[c] * wgt; sw += wgt;
-      }
-      return sw > 0 ? [sx / sw, sy / sw] : null;
+/* ---------- plot builder: plot-worker.js does the drawing ---------- */
+// Two workers from the same script, one for the plot and one for the style thumbnails,
+// so thumbnails never hold the plot up. Where a worker can't start (Chrome on file://)
+// the same code runs on the page through self.PlotWork, as it did before.
+const plotJobs = new Map();
+let plotJobId = 0, plotInline = false;
+function makeWorker(name) {
+  let w = null;
+  try {
+    w = new Worker('plot-worker.js');
+    w.onmessage = e => {
+      const j = plotJobs.get(e.data.id);
+      if (!j) return;
+      plotJobs.delete(e.data.id);
+      e.data.error ? j.reject(new Error(e.data.error)) : j.resolve(e.data);
     };
-    const target = Math.round(60 + P.plotDetail * 12);
-    const step = Math.max(1, Math.floor(vis.length / target));
-    const stepLen = Math.max(0.6, g * 0.5);
-    const maxSteps = 34;
-    for (let k = 0; k < vis.length; k += step) {
-      let x = BX(k), y = BY(k);
-      const pts = [[x, y]];
-      for (let q = 0; q < maxSteps; q++) {
-        const v = sampleField(x, y);
-        if (!v) break;
-        const l = Math.hypot(v[0], v[1]);
-        if (l < 0.01) break;
-        x += v[0] / l * stepLen; y += v[1] / l * stepLen;
-        if (x < 2 || x > W - 2 || y < 2 || y > H - 2) break;
-        pts.push([x, y]);
-      }
-      if (pts.length > 2) layerPaths[layerOf(k)].push(catmullPath(pts, false, fmt));
-    }
-  } else if (style === 'rd') {
-    // Gray-Scott reaction-diffusion over the cloud's footprint; the data value
-    // at each cell sets feed/kill, so the climate chooses the pattern's shape
-    const GW2 = 110, GH2 = Math.max(12, Math.round(110 * H / W));
-    const NC = GW2 * GH2, cw2 = W / GW2, ch2 = H / GH2;
-    let U = new Float32Array(NC).fill(1), Vf = new Float32Array(NC);
-    const U2 = new Float32Array(NC), V2 = new Float32Array(NC);
-    const rdMask = new Uint8Array(NC), attrG = new Float32Array(NC), cntG = new Float32Array(NC);
-    for (let k = 0; k < vis.length; k++) {
-      const gxi = Math.floor(DX(k) / cw2), gyi = Math.floor(DY(k) / ch2);
-      if (gxi < 0 || gxi >= GW2 || gyi < 0 || gyi >= GH2) continue;
-      const c = gyi * GW2 + gxi;
-      rdMask[c] = 1; attrG[c] += layerAttr(k); cntG[c]++;
-    }
-    for (let c = 0; c < NC; c++) if (cntG[c]) attrG[c] /= cntG[c];
-    // seed gentle V blobs sparsely (~2% of cells; dense seeding crashes U globally)
-    for (let c = 0; c < NC; c++) {
-      if (!rdMask[c] || ((c * 2654435761 >>> 0) % 47) >= 1) continue;
-      for (const o of [0, -1, 1, -GW2, GW2]) {
-        const c2 = c + o;
-        if (c2 >= 0 && c2 < NC && rdMask[c2]) { Vf[c2] = 0.55; U[c2] = 0.45; }
-      }
-    }
-    const iters = Math.round(160 + P.plotDetail * 3);
-    const Du = 0.21, Dv = 0.105;
-    let Ua = U, Va = Vf, Ub = U2, Vb = V2;
-    for (let it = 0; it < iters; it++) {
-      for (let j = 0; j < GH2; j++) for (let i = 0; i < GW2; i++) {
-        const c = j * GW2 + i;
-        if (!rdMask[c]) { Ub[c] = 1; Vb[c] = 0; continue; }
-        const u = Ua[c], v = Va[c];
-        // outside the footprint counts as fresh chemical (u=1, v=0) so the
-        // boundary feeds the reaction instead of starving it
-        let lU = 0, lV = 0;
-        if (i > 0 && rdMask[c-1])        { lU += Ua[c-1];   lV += Va[c-1];   } else lU += 1;
-        if (i < GW2-1 && rdMask[c+1])    { lU += Ua[c+1];   lV += Va[c+1];   } else lU += 1;
-        if (j > 0 && rdMask[c-GW2])      { lU += Ua[c-GW2]; lV += Va[c-GW2]; } else lU += 1;
-        if (j < GH2-1 && rdMask[c+GW2])  { lU += Ua[c+GW2]; lV += Va[c+GW2]; } else lU += 1;
-        const lapU = lU - 4 * u;
-        const lapV = lV - 4 * v;
-        const a = attrG[c];
-        const F = 0.034 + 0.022 * a, K = 0.060 + 0.004 * a;
-        const uvv = u * v * v;
-        let nu = u + Du * lapU - uvv + F * (1 - u);
-        let nv = v + Dv * lapV + uvv - (F + K) * v;
-        Ub[c] = nu < 0 ? 0 : nu > 1 ? 1 : nu; // clamp to keep the sim stable
-        Vb[c] = nv < 0 ? 0 : nv > 1 ? 1 : nv;
-      }
-      const su = Ua; Ua = Ub; Ub = su;
-      const sv = Va; Va = Vb; Vb = sv;
-    }
-    if (location.search.includes('rddebug')) {
-      let mc = 0, sc = 0, mv = 0, nan = 0;
-      for (let c = 0; c < NC; c++) { if (rdMask[c]) mc++; if (Va[c] > mv) mv = Va[c]; if (Va[c] !== Va[c]) nan++; }
-      for (let c = 0; c < NC; c++) if (Vf[c] > 0 || V2[c] > 0) sc++;
-      console.log('RDDEBUG mask cells:', mc, 'maxV:', mv, 'NaN:', nan, 'nonzeroV:', sc, 'iters:', iters);
-    }
-    // scanline runs where V is high -> plotter-friendly stripes/spots
-    const allRuns = [];
-    const thr = 0.2;
-    for (let j = 0; j < GH2; j++) {
-      let run = null;
-      for (let i = 0; i <= GW2; i++) {
-        const c = j * GW2 + i;
-        const on = i < GW2 && rdMask[c] && Va[c] > thr;
-        if (on) {
-          if (!run) run = { pts: [], acc: 0, m: 0 };
-          run.pts.push([(i + 0.5) * cw2, (j + 0.5) * ch2 - Va[c] * ch2 * 0.4]);
-          run.acc += attrG[c]; run.m++;
-        } else if (run) {
-          if (run.pts.length >= 2) allRuns.push({ pts: run.pts, closed: false, attr: run.acc / run.m });
-          run = null;
-        }
-      }
-    }
-    const sortedAttr = allRuns.map(r => r.attr).sort((a, b) => a - b);
-    for (const r of allRuns) {
-      let rank = sortedAttr.findIndex(v => v >= r.attr);
-      if (rank < 0) rank = sortedAttr.length - 1;
-      const L = Math.min(layers - 1, Math.floor(rank / (sortedAttr.length || 1) * layers));
-      layerPaths[L].push(catmullPath(r.pts, false, fmt));
-    }
-  } else {
-    const target = Math.round(100 + P.plotDetail * 40);
-    const step = Math.max(1, Math.floor(vis.length / target));
-    const ramp = ['.', ':', '-', '=', '+', '*', '#', '%', '@'];
-    for (let k = 0; k < vis.length; k += step) {
-      const x = DX(k), y = DY(k), m = mag[k], L = layerOf(k);
-      const push = d => layerPaths[L].push(d);
-      if (style === 'points') {
-        // stipple: tiny dot per point; glyph slider sets dot size, displacement adds a touch
-        const r = Math.max(0.06, g * 0.09 * (0.6 + m * 0.8));
-        push(`M${fmt(x - r)} ${fmt(y)} a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(2*r)} 0 a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(-2*r)} 0`);
-      } else if (style === 'hairs') {
-        const hx = BX(k) + (x - BX(k)) * g, hy = BY(k) + (y - BY(k)) * g;
-        push(`M${fmt(BX(k))} ${fmt(BY(k))} L${fmt(hx)} ${fmt(hy)}`);
-      } else if (style === 'arrows') {
-        const hx = BX(k) + (x - BX(k)) * g, hy = BY(k) + (y - BY(k)) * g;
-        const a = Math.atan2(hy - BY(k), hx - BX(k));
-        const hl = Math.max(0.6, (0.25 + m * 0.6) * g);
-        push(`M${fmt(BX(k))} ${fmt(BY(k))} L${fmt(hx)} ${fmt(hy)}`);
-        push(`M${fmt(hx)} ${fmt(hy)} L${fmt(hx - hl*Math.cos(a - 0.45))} ${fmt(hy - hl*Math.sin(a - 0.45))}`);
-        push(`M${fmt(hx)} ${fmt(hy)} L${fmt(hx - hl*Math.cos(a + 0.45))} ${fmt(hy - hl*Math.sin(a + 0.45))}`);
-      } else if (style === 'circles') {
-        const r = (0.2 + m * 0.8) * g;
-        push(`M${fmt(x - r)} ${fmt(y)} a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(2*r)} 0 a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(-2*r)} 0`);
-      } else if (style === 'suns') {
-        const r = (0.2 + m * 0.5) * g;
-        push(`M${fmt(x - r)} ${fmt(y)} a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(2*r)} 0 a${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(-2*r)} 0`);
-        for (let q = 0; q < 7; q++) {
-          const a = q / 7 * Math.PI * 2 + m * 2;
-          push(`M${fmt(x + Math.cos(a)*r*1.35)} ${fmt(y + Math.sin(a)*r*1.35)} L${fmt(x + Math.cos(a)*r*2)} ${fmt(y + Math.sin(a)*r*2)}`);
-        }
-      } else if (style === 'spirals') {
-        const rmax = (0.25 + m * 0.75) * g;
-        const segs = 30;
-        let d = `M${fmt(x)} ${fmt(y)}`;
-        for (let q = 1; q <= segs; q++) {
-          const t = q / segs, a = t * Math.PI * 2 * 2.2 + m * 5;
-          d += ` L${fmt(x + Math.cos(a) * rmax * t)} ${fmt(y + Math.sin(a) * rmax * t)}`;
-        }
-        push(d);
-      } else { // ascii
-        const ch = ramp[Math.min(ramp.length - 1, Math.floor(m * ramp.length))];
-        layerTexts[L].push({ x, y, s: g * 2.2, ch });
-      }
-    }
+    w.onerror = e => {
+      console.warn(`${name} worker unavailable, building on the main thread instead:`, e.message);
+      plotInline = true;
+      for (const j of plotJobs.values()) j.reject(new Error('worker failed'));
+      plotJobs.clear();
+    };
+  } catch (err) {
+    console.warn(`${name} worker unavailable, building on the main thread instead:`, err.message);
+    plotInline = true;
   }
-
-  if (formOn()) { // the point styles can carry form lines too
-    const fld = rasterField(view, d, opts.final ? 480 : 320), f2 = v => +v.toFixed(2);
-    for (const p of formLines(fld, d)) {
-      while (layerPaths.length <= p.layer) { layerPaths.push([]); layerTexts.push([]); }
-      let s2 = `M${f2(p.pts[0])} ${f2(p.pts[1])}`;
-      for (let i = 2; i < p.pts.length; i += 2) s2 += ` L${f2(p.pts[i])} ${f2(p.pts[i+1])}`;
-      layerPaths[p.layer].push(s2);
-    }
-  }
-  return { W, H, d, polys: null, paths: layerPaths, texts: layerTexts, meta: plotMeta() };
+  return w;
+}
+const workers = { plot: makeWorker('plot'), thumb: makeWorker('thumbnail') };
+function plotJob(which, msg, transfer) {
+  const w = workers[which];
+  if (plotInline || !w) return Promise.resolve().then(() => self.PlotWork.job(msg));
+  return new Promise((resolve, reject) => {
+    const id = ++plotJobId;
+    plotJobs.set(id, { resolve, reject });
+    w.postMessage({ ...msg, id }, transfer || []);
+  });
+}
+function viewMessage(view, withAttr) {
+  const m = { count: view.count, nd: view.nd, nb: view.nb, depth: view.depth, dist: view.dist, mag: view.mag,
+              facing: view.facing, shade: view.shade, hgt: view.hgt, lum: view.lum, edge: view.edge };
+  if (view.base) m.base = view.base;
+  if (withAttr) m.attr = layerAttrs(view);
+  return m;
+}
+const buffersOf = o => Object.values(o).filter(a => a && a.buffer).map(a => a.buffer);
+function plotParams(frame) {
+  const point = P.plotStyle.startsWith('h:');
+  return { toneSrc: P.toneSrc, depthFade: P.depthFade, follow: P.follow, psize: P.psize, maxPointPx: MAX_POINT_PX, frameS: frame.s, frameVh: frame.vh,
+           formSil: P.formSil, formTurn: P.formTurn, formSlices: P.formSlices, formHeight: P.formHeight, formPen: P.formPen, formOn: !!formOn(),
+           depthPens: P.depthPens, depthBands: P.depthBands, depthRev: P.depthRev,
+           pointStyle: point ? P.plotStyle.slice(2) : null, plotDetail: P.plotDetail, plotGlyph: P.plotGlyph, plotAxis: P.plotAxis, plotPens: P.plotPens };
+}
+function unpackPolys(p) {
+  const out = [];
+  for (let i = 0; i + 1 < p.offs.length; i++) out.push({ layer: p.layers[i], pts: p.pts.subarray(p.offs[i], p.offs[i + 1]) });
+  return out;
 }
 
-function buildPlotSVG() {
-  const lay = buildPlotLayers({ final: true });
+async function buildPlotLayers(opts = {}) {
+  if (!n) return null;
+  const t0 = performance.now();
+  const d = plotDims(), W = d.W, H = d.H;
+  const point = P.plotStyle.startsWith('h:');
+  const stride = opts.final ? 1 : previewStride() * (opts.moving ? 2 : 1);
+  const view = projectView(d, stride, point);
+  const msg = { kind: 'plot', d, prm: plotParams(view.frame), LS, final: !!opts.final, coarse: !!opts.moving && !point,
+                res: opts.final ? 480 : opts.moving ? 180 : 320, view: viewMessage(view, point) };
+  const meta = plotMeta(), mainMs = performance.now() - t0;
+  const r = await plotJob('plot', msg, buffersOf(msg.view));
+  if (r.polys) return { W, H, d, polys: unpackPolys(r.polys), paths: [], texts: [], meta, mainMs, loopBusy: !!r.loopBusy };
+  return { W, H, d, polys: null, paths: r.paths, texts: r.texts, meta, mainMs };
+}
+
+async function buildPlotSVG() {
+  const lay = await buildPlotLayers({ final: true });
   if (!lay) return '';
   const stroke = LS.pen;
   const open = (i, col) => `  <g id="pen${i + 1}" inkscape:groupmode="layer" inkscape:label="${i + 1} pen ${i + 1} ${CS.colourName(col)} (${col})" fill="none" stroke="${col}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round">`;
@@ -2695,8 +2289,8 @@ function buildPlotSVG() {
 
 /* live plot view: the paper sits exactly over the page frame */
 const plotCv = $('plot-cv'), plotCtx = plotCv.getContext('2d');
-let plotLive = false, plotDirty = true, plotGap = 66, lastPlot = 0, lastCamMove = -1e9, focusFlash = 0;
-let thumbDirty = true, thumbInputAt = 0;
+let plotLive = false, plotDirty = true, plotBusy = false, plotLoopBusy = false, plotGap = 33, lastPlot = 0, lastCamMove = -1e9, focusFlash = 0;
+let thumbDirty = true, thumbBusy = false, thumbInputAt = 0;
 const lastCamMatrix = new Float64Array(16);
 
 function markPlotDirty() {
@@ -2712,9 +2306,8 @@ function togglePlotLive(force) {
   b.dataset.state = plotLive ? 'on' : 'off';
   b.setAttribute('aria-label', plotLive ? 'Show the scan' : 'Show the plot');
   $('shutter-cap').textContent = plotLive ? 'View scan' : 'View plot';
-  plotDirty = true;
-  if (plotLive) drawPlotFrame();
-  else updateReadout();
+  plotDirty = true;   // the main loop draws it
+  if (!plotLive) updateReadout();
 }
 
 function styleLabel() {
@@ -2740,10 +2333,11 @@ function updateFrame(splitOn) {
   if (el.dataset.css !== css) { el.dataset.css = css; el.style.cssText = css; }
 }
 
-function drawPlotFrame(moving) {
+async function drawPlotFrame(moving) {
+  plotDirty = false;   // anything changed while the worker is busy marks it again
+  const lay = await buildPlotLayers({ moving });
+  if (!lay || !plotLive) return;
   const t0 = performance.now();
-  const lay = buildPlotLayers({ moving });
-  if (!lay) return;
   const d = lay.d, f = plotFrame(d);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const cssW = Math.round(d.W * f.s), cssH = Math.round(d.H * f.s);
@@ -2810,29 +2404,37 @@ function drawPlotFrame(moving) {
     c.moveTo(x - r * 1.5, y); c.lineTo(x + r * 1.5, y); c.moveTo(x, y - r * 1.5); c.lineTo(x, y + r * 1.5);
     c.stroke();
   }
-  plotDirty = false;
-  const cost = performance.now() - t0;
-  plotGap = Math.max(66, cost * 1.5);  // heavy styles refresh less often rather than dragging the camera
+  plotLoopBusy = !!lay.loopBusy;
+  // the worker sets its own pace; this only caps what the main thread spends on projecting and painting
+  plotGap = Math.max(33, (lay.mainMs + performance.now() - t0) * 4);
   const n2 = lines >= 1000 ? (lines / 1000).toFixed(1) + 'k' : lines;
   updateReadout(length ? [`${(length / 1000).toFixed(1)} m`, `${n2} lines`] : [`${n2} marks`]);
 }
 
-/* style thumbnails: each previews its filter on the current view, one per idle frame */
-let THUMBS = [], thumbStamp = 0, thumbSnap = null, lastThumb = 0;
-function drawNextThumb(now) {
-  if (!thumbSnap || now - lastThumb < 40) return;
+/* style thumbnails: each previews its filter on the current view, built by the thumbnail worker */
+let THUMBS = [], thumbStamp = 0, thumbD = null;
+async function snapThumbs() {
+  const d = plotDims(), view = projectView(d, previewStride() * 2);
+  const msg = { kind: 'snap', d, prm: plotParams(view.frame), LS, view: viewMessage(view) };
+  await plotJob('thumb', msg, buffersOf(msg.view));
+  thumbD = d;
+  thumbStamp++;
+}
+function nextThumb() { // the chosen style first, then its neighbours outward, then the rest
   const cur = Math.max(0, THUMBS.findIndex(t => t.mode === LS.mode));
-  let pick = null;
-  for (let k = 0; k < THUMBS.length && !pick; k++) {
+  for (let k = 0; k < THUMBS.length; k++) {
     const off = k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2);
     const th = THUMBS[(cur + off + THUMBS.length) % THUMBS.length];
-    if (th.stamp !== thumbStamp) pick = th;
+    if (th.stamp !== thumbStamp) return th;
   }
-  if (!pick) return;
-  lastThumb = now;
+  return null;
+}
+async function drawThumb(pick) {
   pick.stamp = thumbStamp;
-  const { gray, w, h, d, shape } = thumbSnap;
-  const out = CS.thumb(pick.mode, gray, w, h, d, shape);
+  const r = await plotJob('thumb', { kind: 'thumb', mode: pick.mode, LS });
+  const d = thumbD;
+  if (!d) return;
+  const out = unpackPolys(r.polys);
   const { cv, ctx } = pick, W = cv.width, H = cv.height;
   const k = Math.max(W / d.W, H / d.H) * 1.08, ox = (W - d.W * k) / 2, oy = (H - d.H * k) / 2;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2856,17 +2458,10 @@ function drawNextThumb(now) {
   ctx.globalCompositeOperation = 'source-over';
   LS.mode = keep;
 }
-function refreshThumbSnap() {
-  const d = plotDims();
-  const fld = rasterField(projectView(d, previewStride()), d, 200);
-  thumbSnap = { gray: fld.gray, w: fld.w, h: fld.h, d, shape: fld.shape };
-  thumbStamp++;
-  thumbDirty = false;
-}
 
-function downloadPlotSVG() {
+async function downloadPlotSVG() {
   computeDisplacementFrame();
-  const svg = buildPlotSVG();
+  const svg = await buildPlotSVG();
   if (!svg) return;
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   const a = document.createElement('a');
@@ -2977,7 +2572,7 @@ async function exportFrameSequence() {
       tl.t = haveWindow ? start + (end - start) * f : origT;
       clockT = origClock + k / fps;
       computeDisplacementFrame();
-      const svg = buildPlotSVG();
+      const svg = await buildPlotSVG();
       if (svg) files.push({ name: `frame_${pad(k + 1, digits)}.svg`, data: new TextEncoder().encode(svg) });
       if (k % 5 === 0) {
         seqStat.textContent = `Rendering frame ${k + 1}/${frames}…`;
@@ -3487,15 +3082,16 @@ function animate(now) {
   const w = viewport.clientWidth, h = viewport.clientHeight;
   const splitOn = P.epochMode === 'split' && climate.normB && pointsB && P.climGain > 0;
   $('epoch-labels').style.display = splitOn && !plotLive ? 'flex' : 'none';
+  const drawScene = !plotLive || LS.camUnder;   // the paper covers the scene: no point drawing it underneath
   if (splitOn && w > 1 && h > 1) {
     if (camera.aspect !== (w/2)/h) { camera.aspect = (w/2)/h; camera.updateProjectionMatrix(); }
     renderer.setScissorTest(true);
     points.visible = true; pointsB.visible = false;
     renderer.setViewport(0, 0, w/2, h); renderer.setScissor(0, 0, w/2, h);
-    renderer.render(scene, camera);
+    if (drawScene) renderer.render(scene, camera);
     points.visible = false; pointsB.visible = true;
     renderer.setViewport(w/2, 0, w/2, h); renderer.setScissor(w/2, 0, w/2, h);
-    renderer.render(scene, camera);
+    if (drawScene) renderer.render(scene, camera);
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
     points.visible = true; pointsB.visible = false;
@@ -3503,7 +3099,7 @@ function animate(now) {
     if (h > 0 && camera.aspect !== w/h) { camera.aspect = w/h; camera.updateProjectionMatrix(); }
     if (pointsB) pointsB.visible = false;
     if (points) points.visible = true;
-    renderer.render(scene, camera);
+    if (drawScene) renderer.render(scene, camera);
   }
   updateFrame(!!splitOn);
   let camMoved = false;
@@ -3511,13 +3107,23 @@ function animate(now) {
   for (let i = 0; i < 16; i++) if (Math.abs(cm[i] - lastCamMatrix[i]) > 1e-6) { camMoved = true; lastCamMatrix[i] = cm[i]; }
   if (camMoved) { lastCamMove = now; thumbDirty = true; thumbInputAt = now; }
   const moving = now - lastCamMove < 250;
-  // shimmer, audio and the timeline keep the data moving, so while it's on the plot stays live
-  const needsPlot = plotDirty || moving || dataMix > 0 || CS.loopBusy();
-  let drew = false;
-  if (plotLive && needsPlot && now - lastPlot >= plotGap) { lastPlot = now; drawPlotFrame(moving); drew = true; }
-  if (!drew && !moving && !tl.playing && !planet.playing && n && $('styleSec').open) {
-    if (thumbDirty && now - thumbInputAt > 250) refreshThumbSnap();
-    else drawNextThumb(now);
+  // the plot is rebuilt while anything it shows is still changing: a control, the camera,
+  // the data fading in or out, shimmer and the weather behaviours that move with the clock
+  const beh = climate.loaded && P.climGain > 0 ? (BEHAVIOR[climate.varName] || 'swell') : null;
+  const dataAnimating = dataOn && ((P.shimmer > 0 && P.dispMode !== 'none') || P.dispMode === 'swirl' || ['wind', 'breathe', 'sag', 'lift'].includes(beh));
+  const needsPlot = plotDirty || moving || (dataMix > 0 && dataMix < 1) || dataAnimating || tl.playing || planet.playing || plotLoopBusy;
+  if (plotLive && needsPlot && !plotBusy && !seqRunning && now - lastPlot >= plotGap) {
+    lastPlot = now; plotBusy = true;
+    drawPlotFrame(moving).catch(e => console.warn('plot:', e)).finally(() => { plotBusy = false; });
+  }
+  if (!thumbBusy && !moving && !tl.playing && !planet.playing && n && $('styleSec').open) {
+    if (thumbDirty && now - thumbInputAt > 250) {
+      thumbDirty = false; thumbBusy = true;
+      snapThumbs().catch(e => console.warn('thumbnails:', e)).finally(() => { thumbBusy = false; });
+    } else if (!thumbDirty) {
+      const pick = nextThumb();
+      if (pick) { thumbBusy = true; drawThumb(pick).catch(e => console.warn('thumbnail:', e)).finally(() => { thumbBusy = false; }); }
+    }
   }
 }
 
@@ -3580,7 +3186,7 @@ if (location.search.includes('planettest')) {
     let bmn = 1, bmx = 0;
     for (const v of planet.bound) { if (v < bmn) bmn = v; if (v > bmx) bmx = v; }
     log.push(`bound (monthly NOAA co2): first=${planet.bound[0].toFixed(5)} last=${planet.bound[planet.bound.length-1].toFixed(5)} range=${(bmx-bmn).toExponential(2)} raw=${planetRawNow()?.toFixed(2)} ppm @ ${planetMomentLabel()}`);
-    const svg = buildPlotSVG();
+    const svg = await buildPlotSVG();
     log.push(`plot svg ${svg.length} chars, planetary provenance: ${svg.includes('planetary:')}`);
     console.log('PLANETTEST\n' + log.join('\n'));
   }, 900);
@@ -3602,10 +3208,10 @@ if (location.search.includes('autotest')) {
     tl.t = 400; tlRange.value = 400;
     updateTimelineLabel(); drawSpark();
     console.log('AUTOTEST: climate loaded =', climate.loaded, 'var =', climate.varName, 'steps =', tl.len);
-    setTimeout(() => {
+    setTimeout(async () => {
       for (const s of [...HAUNTED_MODES.map(([m]) => 'h:' + m), ...LENS_MODES.map(([m]) => m)]) {
         selectStyle(s);
-        const svg = buildPlotSVG();
+        const svg = await buildPlotSVG();
         console.log(`AUTOTEST plot ${s}: ${svg.length} chars, layers: ${(svg.match(/inkscape:groupmode/g) || []).length}`);
       }
       selectStyle((location.search.match(/style=([\w:]+)/) || [, 'dots'])[1]);
