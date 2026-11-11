@@ -2090,7 +2090,8 @@ function plotFrame(d) {
 // Every point the camera can see inside the page frame, projected to page mm, with
 // what the plot builder needs to know about each one: distance, height, which way
 // its surface faces, how the light falls on it, colour, edge score and data shift.
-function projectView(d, stride = 1, withBase = false) {
+function projectView(d, stride = 1, want = {}) {
+  const withBase = !!want.base, withNormals = !!want.normals, withMag = !!want.mag;
   camera.updateMatrixWorld();
   const f = plotFrame(d), v = new THREE.Vector3();
   const inv = camera.matrixWorldInverse, proj = camera.projectionMatrix, near = camera.near;
@@ -2117,7 +2118,7 @@ function projectView(d, stride = 1, withBase = false) {
     const X = pageX(v.x), Y = pageY(v.y);
     if (X < d.mx || X > x1 || Y < d.my || Y > y1) continue;
     vis[m] = i; nd[m*2] = X; nd[m*2+1] = Y; depth[m] = v.z; dist[m] = z; hgt[m] = displaced[i*3+1];
-    const nw = normals[i];
+    const nw = withNormals ? normals[i] : null;
     if (nw) { // scan normals are unsigned: turn each to face the camera, then compare with the view and the light
       let nx = e[0]*nw[0] + e[4]*nw[1] + e[8]*nw[2], ny = e[1]*nw[0] + e[5]*nw[1] + e[9]*nw[2], nz = e[2]*nw[0] + e[6]*nw[1] + e[10]*nw[2];
       const pl = Math.hypot(vx, vy, vz) || 1;
@@ -2128,15 +2129,17 @@ function projectView(d, stride = 1, withBase = false) {
     } else { facing[m] = 0.5; shade[m] = 0.5; }
     lum[m] = col ? 0.299 * col[i*3] + 0.587 * col[i*3+1] + 0.114 * col[i*3+2] : 0.5;
     edge[m] = edgeScores[i] ?? 0;
-    v.set(basePts[i*3], basePts[i*3+1], basePts[i*3+2]).applyMatrix4(inv);
-    if (-v.z > near) { v.applyMatrix4(proj); nb[m*2] = pageX(v.x); nb[m*2+1] = pageY(v.y); }
-    else { nb[m*2] = X; nb[m*2+1] = Y; }
+    if (withMag) { // where the point sat before the data moved it, and how far it went
+      v.set(basePts[i*3], basePts[i*3+1], basePts[i*3+2]).applyMatrix4(inv);
+      if (-v.z > near) { v.applyMatrix4(proj); nb[m*2] = pageX(v.x); nb[m*2+1] = pageY(v.y); }
+      else { nb[m*2] = X; nb[m*2+1] = Y; }
+      mag[m] = Math.hypot(displaced[i*3]-basePts[i*3], displaced[i*3+1]-basePts[i*3+1], displaced[i*3+2]-basePts[i*3+2]);
+      if (mag[m] > mmax) mmax = mag[m];
+    }
     if (base) { base[m*3] = basePts[i*3]; base[m*3+1] = basePts[i*3+1]; base[m*3+2] = basePts[i*3+2]; }
-    mag[m] = Math.hypot(displaced[i*3]-basePts[i*3], displaced[i*3+1]-basePts[i*3+1], displaced[i*3+2]-basePts[i*3+2]);
-    if (mag[m] > mmax) mmax = mag[m];
     m++;
   }
-  for (let k = 0; k < m; k++) mag[k] /= mmax;
+  if (withMag) for (let k = 0; k < m; k++) mag[k] /= mmax;
   // exact-size copies: these are handed over to the plot worker
   const cut = (a, k) => a.slice(0, m * k);
   const out = { frame: f, count: m, vis: cut(vis, 1), nd: cut(nd, 2), nb: cut(nb, 2), depth: cut(depth, 1), dist: cut(dist, 1),
@@ -2235,6 +2238,12 @@ function viewMessage(view, withAttr) {
   return m;
 }
 const buffersOf = o => Object.values(o).filter(a => a && a.buffer).map(a => a.buffer);
+// what the current style reads from each point, so the projection skips the rest
+function viewNeeds(point) {
+  return { base: point,
+           normals: ['lit', 'shaded', 'facing'].includes(P.toneSrc) || ['facing', 'light'].includes(P.follow),
+           mag: point || P.toneSrc === 'data' || P.follow === 'data' };
+}
 function plotParams(frame) {
   const point = P.plotStyle.startsWith('h:');
   return { toneSrc: P.toneSrc, depthFade: P.depthFade, follow: P.follow, psize: P.psize, maxPointPx: MAX_POINT_PX, frameS: frame.s, frameVh: frame.vh,
@@ -2254,7 +2263,7 @@ async function buildPlotLayers(opts = {}) {
   const d = plotDims(), W = d.W, H = d.H;
   const point = P.plotStyle.startsWith('h:');
   const stride = opts.final ? 1 : previewStride() * (opts.moving ? 2 : 1);
-  const view = projectView(d, stride, point);
+  const view = projectView(d, stride, viewNeeds(point));
   const msg = { kind: 'plot', d, prm: plotParams(view.frame), LS, final: !!opts.final, coarse: !!opts.moving && !point,
                 res: opts.final ? 480 : opts.moving ? 180 : 320, view: viewMessage(view, point) };
   // the live view is painted in the worker and comes back as a bitmap; a still being exported comes back as strokes
@@ -2357,7 +2366,7 @@ function updateFrame(splitOn) {
 async function drawPlotFrame(moving) {
   plotDirty = false;   // anything changed while the worker is busy marks it again
   const lay = await buildPlotLayers({ moving });
-  if (!lay || !plotLive) return;
+  if (!lay || !plotLive) { if (lay && lay.bitmap) lay.bitmap.close(); return; }
   const t0 = performance.now();
   const d = lay.d, f = plotFrame(d);
   const pt = lay.paint || plotPaint(d, f, moving), { pw, ph, k, dpr, cssW, cssH } = pt;
@@ -2441,7 +2450,7 @@ function finishPlotFrame(lay, t0, lines, length) {
 /* style thumbnails: each previews its filter on the current view, built by the thumbnail worker */
 let THUMBS = [], thumbStamp = 0, thumbD = null;
 async function snapThumbs() {
-  const d = plotDims(), view = projectView(d, previewStride() * 2);
+  const d = plotDims(), view = projectView(d, previewStride() * 2, viewNeeds(false));
   const msg = { kind: 'snap', d, prm: plotParams(view.frame), LS, view: viewMessage(view) };
   await plotJob('thumb', msg, buffersOf(msg.view));
   thumbD = d;
@@ -3139,8 +3148,9 @@ function animate(now) {
   // the data fading in or out, shimmer and the weather behaviours that move with the clock
   const beh = climate.loaded && P.climGain > 0 ? (BEHAVIOR[climate.varName] || 'swell') : null;
   const dataAnimating = dataOn && ((P.shimmer > 0 && P.dispMode !== 'none') || P.dispMode === 'swirl' || ['wind', 'breathe', 'sag', 'lift'].includes(beh));
-  const needsPlot = plotDirty || moving || (dataMix > 0 && dataMix < 1) || dataAnimating || tl.playing || planet.playing || plotLoopBusy;
-  if (plotLive && needsPlot && !plotBusy && !seqRunning && now - lastPlot >= plotGap) {
+  const urgent = plotDirty || moving || (dataMix > 0 && dataMix < 1) || tl.playing || planet.playing;
+  const ambient = dataAnimating || plotLoopBusy;   // only the clock is moving things: a few rebuilds a second is plenty, and far kinder to a laptop
+  if (plotLive && (urgent || ambient) && !plotBusy && !seqRunning && now - lastPlot >= (urgent ? plotGap : Math.max(plotGap, 250))) {
     lastPlot = now; plotBusy = true;
     drawPlotFrame(moving).catch(e => console.warn('plot:', e)).finally(() => { plotBusy = false; });
   }
